@@ -1,0 +1,2852 @@
+#LyX 2.2 created this file. For more info see http://www.lyx.org/
+\lyxformat 508
+\begin_document
+\begin_header
+\save_transient_properties true
+\origin unavailable
+\textclass article
+\use_default_options true
+\maintain_unincluded_children false
+\language english
+\language_package babel
+\inputencoding auto
+\fontencoding global
+\font_roman "default" "default"
+\font_sans "default" "default"
+\font_typewriter "default" "default"
+\font_math "auto" "auto"
+\font_default_family default
+\use_non_tex_fonts false
+\font_sc false
+\font_osf false
+\font_sf_scale 100 100
+\font_tt_scale 100 100
+\graphics default
+\default_output_format default
+\output_sync 0
+\bibtex_command default
+\index_command default
+\paperfontsize 11
+\spacing other 1.15
+\use_hyperref false
+\papersize default
+\use_geometry true
+\use_package amsmath 1
+\use_package amssymb 1
+\use_package cancel 1
+\use_package esint 1
+\use_package mathdots 1
+\use_package mathtools 1
+\use_package mhchem 1
+\use_package stackrel 1
+\use_package stmaryrd 1
+\use_package undertilde 1
+\cite_engine basic
+\cite_engine_type default
+\biblio_style plain
+\use_bibtopic false
+\use_indices false
+\paperorientation portrait
+\suppress_date false
+\justification true
+\use_refstyle 1
+\index Index
+\shortcut idx
+\color #008000
+\end_index
+\leftmargin 2.5cm
+\topmargin 2.5cm
+\rightmargin 2.5cm
+\bottommargin 2.5cm
+\secnumdepth 3
+\tocdepth 3
+\paragraph_separation indent
+\paragraph_indentation default
+\quotes_language english
+\papercolumns 1
+\papersides 1
+\paperpagestyle default
+\listings_params "basicstyle={\footnotesize\ttfamily}"
+\tracking_changes false
+\output_changes false
+\html_math_output 0
+\html_css_as_file 0
+\html_be_strict false
+\end_header
+
+\begin_body
+
+\begin_layout Title
+The ADMBP addon for gretl
+\end_layout
+
+\begin_layout Author
+\begin_inset CommandInset href
+LatexCommand href
+name "Artur Tarassow"
+target "https://sites.google.com/site/arturtarassow/"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Date
+Version 0.9
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Doublebox
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+
+\series bold
+Changelog
+\end_layout
+
+\begin_layout Itemize
+Version 0.9 (Sept., 2017)
+\end_layout
+
+\begin_deeper
+\begin_layout Itemize
+Initial version
+\end_layout
+
+\end_deeper
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset CommandInset toc
+LatexCommand tableofcontents
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+Introduction
+\end_layout
+
+\begin_layout Standard
+The 
+\family typewriter
+ADMBP
+\family default
+ (ARDL Dynamic Multiplier Bootstrap Package) is a collection of gretl scripts
+ to estimate ARDL (autoregressive distributed lag) models and associated
+ bootstrap coefficients as well as bootstrap dynamic multipliers.
+\end_layout
+
+\begin_layout Standard
+This package comprises the following features:
+\end_layout
+
+\begin_layout Itemize
+Automatic lag selection of optimal ARDL model based on information criteria
+\end_layout
+
+\begin_layout Itemize
+Estimation of unconditional and conditional ARDL models
+\end_layout
+
+\begin_layout Itemize
+Bootstrap coefficient estimates using 4 different bootstrap procedures
+\end_layout
+
+\begin_layout Itemize
+Computation of bootstrap dynamic multipliers
+\end_layout
+
+\begin_layout Itemize
+Computation of bootstrap error-correction coefficients and bootstrap long-run
+ dynamic multipliers under the assumption of cointegration
+\end_layout
+
+\begin_layout Itemize
+Inference on long-run multipliers using either the bootstrap method or Bewley's
+ IV approximation
+\end_layout
+
+\begin_layout Standard
+In case you want to test for a long-run cointegrating relationship between
+ the series of interest, I recommend to use the gretl user-written package
+ 
+\family typewriter
+cointARDL (LINK: 
+\begin_inset CommandInset href
+LatexCommand href
+name "here"
+target "https://sites.google.com/site/arturtarassow/code/ardl-bootstrap-cointegration"
+
+\end_inset
+
+)
+\family default
+ which comprises two bootstrap based tests using the single-equation cointegrati
+on framework.
+ The help file of the 
+\family typewriter
+cointARDL 
+\family default
+package can also be seen as a supplement to this help file.
+\end_layout
+
+\begin_layout Standard
+Another user-written package for gretl comprising facilities to compute
+ dynamic multipliers was recently published by Oleh Komashko.
+ His 
+\family typewriter
+lagreg
+\family default
+ package shares a few ideas with our package.
+ Both packages provide useful tools.
+\end_layout
+
+\begin_layout Section
+The ARDL model
+\end_layout
+
+\begin_layout Standard
+Begin with the ARDL(1,1) in levels model 
+\begin_inset Formula 
+\[
+y_{t}=\phi_{1}y_{t-1}+c_{0}x_{t}+c_{1}x_{t-1}+u_{t},\quad t=1,...,T
+\]
+
+\end_inset
+
+where 
+\begin_inset Formula $\phi_{1}$
+\end_inset
+
+, 
+\begin_inset Formula $c_{0}$
+\end_inset
+
+ and 
+\begin_inset Formula $c_{1}$
+\end_inset
+
+ are unknown parameters, and 
+\begin_inset Formula 
+\[
+x_{t}=x_{t-1}+e_{t}
+\]
+
+\end_inset
+
+where both 
+\begin_inset Formula $u_{t}$
+\end_inset
+
+ and 
+\begin_inset Formula $e_{t}$
+\end_inset
+
+ are some error terms.
+\end_layout
+
+\begin_layout Standard
+The ARDL model can be re-written in the 
+\emph on
+error-correction
+\emph default
+ ECM(-ARDL) form:
+\begin_inset Formula 
+\begin{align*}
+\Delta y_{t} & =-(1-\phi_{1})\left[y_{t-1}-\frac{c_{0}+c_{1}}{1-\phi_{1}}\right]+c_{0}\Delta x_{t}+u_{t}\\
+ & =\rho(y_{t-1}-\beta x_{t-1})+c_{0}\Delta x_{t}+u_{t}
+\end{align*}
+
+\end_inset
+
+where 
+\begin_inset Formula $\rho=-(1-\phi_{1})$
+\end_inset
+
+ denotes the so called error-correction coefficient (speed of adjustment
+ back to the long-run attractor).
+ The model is dynamically stable as long as 
+\begin_inset Formula $|\rho|=|1-\phi_{1}|<1.$
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+The general level ARDL(p,q) model (here without any deterministics) can
+ be written as
+\begin_inset Formula 
+\[
+y_{t}=\sum_{j=1}^{p}\phi_{j}y_{t-j}+\sum_{j=0}^{q}c_{j}x_{t-j}+u_{t}
+\]
+
+\end_inset
+
+where 
+\begin_inset Formula $p$
+\end_inset
+
+ and 
+\begin_inset Formula $q$
+\end_inset
+
+ denote the respective lag length.
+ In case the lowest lag of the exogenous regressor is 
+\begin_inset Formula $q^{min}>0$
+\end_inset
+
+ a so called 
+\emph on
+unconditional
+\emph default
+ ARDL is estimated.
+ If the contemporaneous value 
+\begin_inset Formula $x_{t}$
+\end_inset
+
+ is included, the so called 
+\emph on
+conditional
+\emph default
+ ARDL is specified (for details see Pesaran/Shin, 1999).
+\end_layout
+
+\begin_layout Standard
+The following assumptions are made:
+\end_layout
+
+\begin_layout Enumerate
+\begin_inset Formula $u_{t}\sim iid(0,\sigma_{u}^{2})$
+\end_inset
+
+
+\end_layout
+
+\begin_layout Enumerate
+\begin_inset Formula $e_{t}$
+\end_inset
+
+ is a general linear stationary process with zero mean and finite variance.
+\end_layout
+
+\begin_layout Enumerate
+\begin_inset Formula $u_{t}$
+\end_inset
+
+ and 
+\begin_inset Formula $e_{t}$
+\end_inset
+
+ are uncorrelated for all lags such that 
+\begin_inset Formula $x_{t}$
+\end_inset
+
+ is strictly exogenous w.r.t.
+ 
+\begin_inset Formula $u_{t}$
+\end_inset
+
+ 
+\end_layout
+
+\begin_layout Enumerate
+\begin_inset Formula $|\phi_{1}|<1,$
+\end_inset
+
+ so that the model is dynamically stable.
+\end_layout
+
+\begin_layout Standard
+All model parameters are estimated by OLS using gretl's internal
+\family typewriter
+ ols
+\family default
+ command.
+\end_layout
+
+\begin_layout Subsection
+Dynamic multipliers
+\end_layout
+
+\begin_layout Standard
+The cumulative dynamic multiplier effects of 
+\series bold
+
+\begin_inset Formula $x_{t}$
+\end_inset
+
+ 
+\series default
+on 
+\begin_inset Formula $y_{t}$
+\end_inset
+
+ at horizon 
+\begin_inset Formula $h$
+\end_inset
+
+ are evaluated as
+\begin_inset Formula 
+\[
+m_{h}=\sum_{j=0}^{h}\frac{\partial y_{t+h}}{\partial x_{t}}.
+\]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+For 
+\begin_inset Formula $h\to\infty$
+\end_inset
+
+, 
+\begin_inset Formula $m_{h}$
+\end_inset
+
+ converges to the 
+\series bold
+long-run multiplier
+\series default
+ 
+\begin_inset Formula $\beta=-\frac{c_{0}+c_{1}}{\rho}$
+\end_inset
+
+ .
+ In case the conditional ARDL is estimated, 
+\begin_inset Formula $c_{0}$
+\end_inset
+
+ is the so called 
+\series bold
+impact multiplier
+\series default
+.
+ Bootstrap confidence intervals are computed similarly to the algorithm
+ explained in the following sub-section 2.2.
+\end_layout
+
+\begin_layout Subsection
+Inference on long-run multipliers
+\end_layout
+
+\begin_layout Standard
+Using the ARDL framework, the long-run multiplier is a 
+\emph on
+non-linear
+\emph default
+ transformation.
+ In the literature, the null hypothesis that the long-run multiplier 
+\begin_inset Formula $\hat{\beta}=0$
+\end_inset
+
+ is usually tested by means of the Delta method which is an approximation.
+ Typically, however, the Delta method yields rather poor approximation.
+ We offer two alternatives to compute the standard deviation of the long-run
+ multipliers.
+\end_layout
+
+\begin_layout Paragraph
+Bootstrap inference
+\end_layout
+
+\begin_layout Standard
+Using bootstrap sampling we can estimate the distribution of 
+\begin_inset Formula $\beta$
+\end_inset
+
+.
+ The algorithm works as follows:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Boxed
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Enumerate
+Estimate the ARDL(
+\begin_inset Formula $p,q$
+\end_inset
+
+) model for fixed lags 
+\begin_inset Formula $p$
+\end_inset
+
+ and 
+\begin_inset Formula $q$
+\end_inset
+
+ by OLS
+\begin_inset Formula 
+\[
+y_{t}=\sum_{j=1}^{p}\phi_{j}y_{t-j}+\sum_{j=0}^{q}c_{j}x_{t-j}+u_{t}
+\]
+
+\end_inset
+
+ and store all coefficients 
+\begin_inset Formula $\hat{\phi_{i}}$
+\end_inset
+
+ and 
+\begin_inset Formula $\hat{c_{i}}$
+\end_inset
+
+ , and the estimated residuals 
+\begin_inset Formula $\hat{u}_{t}$
+\end_inset
+
+ where the initial values are taken to be fixed in the statistical sense.
+\end_layout
+
+\begin_layout Enumerate
+Construct the bootstrap sample, 
+\begin_inset Formula $\{y_{t}^{\ast}\}$
+\end_inset
+
+, recursively from the first step with 
+\begin_inset Formula $T$
+\end_inset
+
+ randomly drawn bootstrap errors, 
+\begin_inset Formula $u_{t}^{\ast}$
+\end_inset
+
+, generated using re-centered residuals, 
+\begin_inset Formula $\hat{u}_{t}^{c}:=\hat{u}_{t}-T^{-1}\sum_{i=1}^{T}\hat{u}_{t}$
+\end_inset
+
+.
+ The same initial values are used for each generated series, 
+\begin_inset Formula $y_{-p+1,\ldots,}^{\ast}y_{0}^{\ast}=y_{-p+1,\ldots,}y_{0}$
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Enumerate
+Using the bootstrap sample, 
+\begin_inset Formula $\{y_{t}^{\ast}\}$
+\end_inset
+
+, estimate the ARDL(
+\begin_inset Formula $p,q$
+\end_inset
+
+) model using OLS.
+ Check for dynamic stability.
+ If stability is ensured proceed with the next step, otherwise go back to
+ step 2 and draw from another set of residuals.
+\end_layout
+
+\begin_layout Enumerate
+Given the bootstrap parameter estimates, compute the long-run multiplier
+\begin_inset Formula $\hat{\beta}^{\ast}$
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Enumerate
+Repeat steps 1 to 4 
+\begin_inset Formula $B$
+\end_inset
+
+ times.
+\end_layout
+
+\begin_layout Enumerate
+Compute the standard deviation of all 
+\begin_inset Formula $B$
+\end_inset
+
+ bootstrap long-run multipliers 
+\begin_inset Formula $\hat{\beta}^{\ast}$
+\end_inset
+
+.
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Resampling is done by means of gretl's fast 
+\family typewriter
+resample()
+\family default
+ function.
+ In future versions of this package, we may make use of gretl's MPI toolbox
+ to accelerate computations.
+\end_layout
+
+\begin_layout Paragraph
+Bewley's IV approach
+\end_layout
+
+\begin_layout Standard
+Bewley proposed an alternative representation (see Bewley, 1979 and Hassler/Wolt
+ers, 2006) of the ARDL model according to which the long-run multipliers
+ of vector 
+\begin_inset Formula $\mathbf{\beta}$
+\end_inset
+
+ are just the coefficients of vector 
+\begin_inset Formula $\mathbf{x_{t}}$
+\end_inset
+
+.
+ His idea is based on an IV regression using lags of 
+\begin_inset Formula $y_{t}$
+\end_inset
+
+ and 
+\begin_inset Formula $x_{t}$
+\end_inset
+
+ as valid instruments.
+ This estimation is automatically done by the 
+\family typewriter
+Bewley()
+\family default
+ function.
+\end_layout
+
+\begin_layout Standard
+For 2SLS estimates, we rely on gretl's native 
+\family typewriter
+tsls
+\family default
+ function using the 
+\family typewriter
+--robust
+\family default
+ option to compute HAC standard errors per default.
+\end_layout
+
+\begin_layout Subsection
+Bootstrap variants
+\end_layout
+
+\begin_layout Standard
+The user can choose between 4 bootstrap methods.
+ In the 
+\family typewriter
+ADMBP
+\family default
+ package we generate for each replication an artificial data set of the
+ same length as the original data set on the assumption that the estimated
+ version of the core model is the true data-generating process, using the
+ observed initial values of each variable, the estimated model, and a set
+ of random innovations.
+ These innovations can be obtained using 4 different ways.
+ The 
+\emph on
+parametric
+\emph default
+ bootstrap draws from a normal distribution.
+ The 
+\emph on
+non-parametric
+\emph default
+ bootstrap re-samples with replacement from the estimated residuals.
+\end_layout
+
+\begin_layout Standard
+To illustrate the two semiparametric wild bootstrap approaches, start from
+ the wild bootstrap DGP 
+\begin_inset Formula $y_{t}^{\ast}=X_{t}\tilde{\beta}+f(\tilde{u}_{t})v_{t}^{\ast}$
+\end_inset
+
+ where 
+\begin_inset Formula $\tilde{\beta}$
+\end_inset
+
+ denotes the least squares estimates, and 
+\begin_inset Formula $f(\tilde{u}_{t})$
+\end_inset
+
+ is a transformation of the 
+\begin_inset Formula $t^{th}$
+\end_inset
+
+ residual 
+\begin_inset Formula $\tilde{u}_{t}$
+\end_inset
+
+, and 
+\begin_inset Formula $v_{t}^{\ast}$
+\end_inset
+
+ is a random variable with mean 0 and variance 1.
+\begin_inset Foot
+status open
+
+\begin_layout Plain Layout
+For further details, see e.g.
+ 
+\begin_inset CommandInset href
+LatexCommand href
+name "russell-davidson.arts.mcgill.ca/e761/rd-jgm-bootstrap.pdf "
+target "russell-davidson.arts.mcgill.ca/e761/rd-jgm-bootstrap.pdf "
+
+\end_inset
+
+.
+\end_layout
+
+\end_inset
+
+ The 
+\emph on
+wild uniform
+\emph default
+ bootstrap assumes that 
+\begin_inset Formula $v_{t}^{\ast}$
+\end_inset
+
+ is drawn from a uniform distribution.
+ In contrast, the Rademacher two-point distribution is given by
+\begin_inset Formula 
+\begin{align*}
+v_{t}^{\ast} & =\begin{cases}
+-1 & \text{{with\quad probability}\; 0.5}\\
+1 & \text{{with\quad probability}\; 0.5}
+\end{cases}
+\end{align*}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\align center
+\begin_inset Float table
+placement H
+wide false
+sideways false
+status open
+
+\begin_layout Plain Layout
+\align center
+\begin_inset Tabular
+<lyxtabular version="3" rows="5" columns="2">
+<features tabularvalignment="middle">
+<column alignment="center" valignment="top">
+<column alignment="center" valignment="top">
+<row>
+<cell alignment="center" valignment="top" topline="true" bottomline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+
+\family typewriter
+btype
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="center" valignment="top" topline="true" bottomline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Bootstrap type
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+0
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="center" valignment="top" topline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+parametric
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+1
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="center" valignment="top" topline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+non-parametric
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+2
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="center" valignment="top" topline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+wild uniform
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" topline="true" bottomline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+3
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="center" valignment="top" topline="true" bottomline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+wild Rademacher
+\end_layout
+
+\end_inset
+</cell>
+</row>
+</lyxtabular>
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+Install and load the package
+\end_layout
+
+\begin_layout Standard
+Since the 
+\family typewriter
+ADMBP
+\family default
+ package is user-contributed it is publicly available on the gretl server.
+ The package must be downloaded once, and loaded into memory each time gretl
+ is started.
+ 
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Doublebox
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+\begin_inset listings
+lstparams "basicstyle={\footnotesize\ttfamily}"
+inline false
+status open
+
+\begin_layout Plain Layout
+
+# turn extra output off
+\end_layout
+
+\begin_layout Plain Layout
+
+set verbose off
+\end_layout
+
+\begin_layout Plain Layout
+
+# Download package (only once need)
+\end_layout
+
+\begin_layout Plain Layout
+
+install ADMBP
+\end_layout
+
+\begin_layout Plain Layout
+
+# Load the ADMBP package into memory
+\end_layout
+
+\begin_layout Plain Layout
+
+include ADMBP.gfn
+\end_layout
+
+\begin_layout Plain Layout
+
+# Get some initial help 
+\end_layout
+
+\begin_layout Plain Layout
+
+help ADMBP
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+Examples
+\end_layout
+
+\begin_layout Subsection
+Determine the optimal lag length
+\end_layout
+
+\begin_layout Standard
+A first step of the modeling stage comprises the determination of the optimal
+ lag length of the approximate ARDL specification.
+ The function 
+\family typewriter
+lagselect()
+\family default
+ makes use of gretl's 
+\family typewriter
+var
+\family default
+ command to determine the lag length using some standard information criteria.
+ For the determination of the lag length, only variable 
+\begin_inset Formula $y_{t}$
+\end_inset
+
+ enters as an endogenous while all other variables are taken as exogenous.
+ A simple example follows using the AWM-macroeconomic dataset comprising
+ various series observed at a quarterly frequency over 28 years.
+ The objective is to estimate a consumption equation where real log consumption
+ expenditures, 
+\begin_inset Formula $c_{t},$
+\end_inset
+
+ is supposed to be a linear but dynamic function of its own lags as well
+ as the log of real income, 
+\begin_inset Formula $inc_{t}$
+\end_inset
+
+, and log of real wealth, 
+\begin_inset Formula $w_{t}$
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Standard
+For illustrative purposes we set the maximum lag length to 
+\begin_inset Formula $p=q=4$
+\end_inset
+
+.
+ Note that at the moment, the 
+\family typewriter
+ADMBP
+\family default
+ package does not allow for gappy lag structures and the same lag length
+ applies to all variables — which is also the standard case in VAR modeling.
+ In the example we use the AIC information criteria to determine the optimal
+ lag length.
+ However, the user has the choice of using the BIC or the HQ criteria alternativ
+ely.
+\end_layout
+
+\begin_layout Standard
+Before we can call the public function 
+\family typewriter
+lagselect()
+\family default
+, we need to set up the main function 
+\family typewriter
+setARDL()
+\family default
+ whose structure we will introduce in the following sub-chapter.
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Doublebox
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+\begin_inset listings
+lstparams "basicstyle={\footnotesize\ttfamily}"
+inline false
+status open
+
+\begin_layout Plain Layout
+
+open AWM.gdt --quiet set seed 1234
+\end_layout
+
+\begin_layout Plain Layout
+
+# Transform series
+\end_layout
+
+\begin_layout Plain Layout
+
+series inc = ln(YER)
+\end_layout
+
+\begin_layout Plain Layout
+
+series c = ln(PCR)
+\end_layout
+
+\begin_layout Plain Layout
+
+series w = ln(WLN/PCD)
+\end_layout
+
+\begin_layout Plain Layout
+
+# Define lists of regressors
+\end_layout
+
+\begin_layout Plain Layout
+
+list xlist = inc w
+\end_layout
+
+\begin_layout Plain Layout
+
+list rxlist = const 
+\end_layout
+
+\begin_layout Plain Layout
+
+list Lall = c xlist rxlist
+\end_layout
+
+\begin_layout Plain Layout
+
+# Get rid of missing observations
+\end_layout
+
+\begin_layout Plain Layout
+
+smpl Lall --no-missing 
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+# Set ARDL parameters
+\end_layout
+
+\begin_layout Plain Layout
+
+scalar pqmax = 4		# max.
+ lag length
+\end_layout
+
+\begin_layout Plain Layout
+
+scalar condARDL = 1	 # 1=conditional ARDL, 0=unconditional
+\end_layout
+
+\begin_layout Plain Layout
+
+scalar infocrit = 1	# info.-crit.
+ for lag determinat.: 1=AIC, 2=BIC, 3=HQC
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+# Bootstrap and confidence interval parameters
+\end_layout
+
+\begin_layout Plain Layout
+
+scalar horiz = 40
+\end_layout
+
+\begin_layout Plain Layout
+
+scalar cilevel = 0.1
+\end_layout
+
+\begin_layout Plain Layout
+
+scalar btype = 2
+\end_layout
+
+\begin_layout Plain Layout
+
+scalar bootrep = 1000
+\end_layout
+
+\begin_layout Plain Layout
+
+scalar shocktype = 1
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+#------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+# Set up the base bundle
+\end_layout
+
+\begin_layout Plain Layout
+
+#------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+bundle b = setARDL(c, xlist, rxlist, pqmax, 
+\backslash
+
+\end_layout
+
+\begin_layout Plain Layout
+
+infocrit, condARDL, shocktype, btype, bootrep, horiz, cilevel)     
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+#--------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+# Determine the optimal lag length (optional)
+\end_layout
+
+\begin_layout Plain Layout
+
+#--------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+lagselect(&b)
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset VSpace bigskip
+\end_inset
+
+We obtain the following output where one can see that the AIC criteria suggests
+ an ARDL(3,3) model
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Doublebox
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+*** Lag selection based on 80 obs.
+ ***
+\end_layout
+
+\begin_layout Plain Layout
+
+--------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+	AIC         BIC          HQ
+\end_layout
+
+\begin_layout Plain Layout
+
+1      -8.1029     -7.9243     -8.0313
+\end_layout
+
+\begin_layout Plain Layout
+
+2      -8.0844     -7.8164     -7.9770
+\end_layout
+
+\begin_layout Plain Layout
+
+3      -8.2191     -7.8618     -8.0758
+\end_layout
+
+\begin_layout Plain Layout
+
+4      -8.1952     -7.7486     -8.0161
+\end_layout
+
+\begin_layout Plain Layout
+
+The selected information criteria suggests an ARDL(3,3) in levels.
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset VSpace defskip
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Note two things here: First, initially we have send a couple of necessary
+ information to 
+\family typewriter
+setARDL()
+\family default
+ in form of a bundle.
+ This bundle 
+\begin_inset Formula $b$
+\end_inset
+
+ holds all necessary information.
+ Second, using these bundle information, we have called the function 
+\family typewriter
+lagselect()
+\family default
+.
+ Calling this 
+\family typewriter
+lagselect()
+\family default
+ function is an optional case.
+\end_layout
+
+\begin_layout Subsection
+Bootstrap dynamic multipliers
+\end_layout
+
+\begin_layout Standard
+Once we have set up the ARDL(
+\begin_inset Formula $p,q$
+\end_inset
+
+) model, we can proceed with the computation of the dynamic multipliers.
+ For estimating the model initially by OLS and running the bootstrap algorithm,
+ we call the function 
+\family typewriter
+runARDL()
+\family default
+ which does all the job for us.
+ Running this rather small ARDL model with 1000 bootstrap iterations takes
+ only 0.7 sec.
+ on a 5-year old i7 Laptop.
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Doublebox
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+#---------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+# Compute bootstrap dynamic multipliers 
+\end_layout
+
+\begin_layout Plain Layout
+
+#---------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+set stopwatch
+\end_layout
+
+\begin_layout Plain Layout
+
+runARDL(&b)
+\end_layout
+
+\begin_layout Plain Layout
+
+printf "This took %.3f sec.
+\backslash
+n", $stopwatch
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+print b   # print information contained in the bundle
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset VSpace bigskip
+\end_inset
+
+The corresponding gretl output reports the estimate using the non-bootstrap
+ dataset.
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Doublebox
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+******************************************
+\end_layout
+
+\begin_layout Plain Layout
+
+*** ARDL (3) in levels regression       ***
+\end_layout
+
+\begin_layout Plain Layout
+
+******************************************
+\end_layout
+
+\begin_layout Plain Layout
+
+Settings for dynamic multiplier computation
+\end_layout
+
+\begin_layout Plain Layout
+
+Shock type: permanent Bootstrap iterations: 1000
+\end_layout
+
+\begin_layout Plain Layout
+
+Bootstrap type: non-parametric
+\end_layout
+
+\begin_layout Plain Layout
+
+Confidence interval: 0.90
+\end_layout
+
+\begin_layout Plain Layout
+
+OLS, using observations 1977:4-1997:4 (T = 81)
+\end_layout
+
+\begin_layout Plain Layout
+
+Dependent variable: Y
+\end_layout
+
+\begin_layout Plain Layout
+
+             coefficient   std.
+ error   t-ratio   p-value   
+\end_layout
+
+\begin_layout Plain Layout
+
+--------------------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+const      −0.212495     0.0779382    −2.726    0.0081   ***
+\end_layout
+
+\begin_layout Plain Layout
+
+Y_1         0.776561     0.108866      7.133    7.63e-10 ***
+\end_layout
+
+\begin_layout Plain Layout
+
+Y_2        −0.180665     0.134492     −1.343    0.1836
+\end_layout
+
+\begin_layout Plain Layout
+
+Y_3         0.196582     0.104365      1.884    0.0638   *
+\end_layout
+
+\begin_layout Plain Layout
+
+inc         0.643504     0.0796265     8.082    1.42e-11 ***
+\end_layout
+
+\begin_layout Plain Layout
+
+inc_1      −0.525778     0.129367     −4.064    0.0001   ***
+\end_layout
+
+\begin_layout Plain Layout
+
+inc_2       0.171476     0.142627      1.202    0.2334    
+\end_layout
+
+\begin_layout Plain Layout
+
+inc_3      −0.0836703    0.112801     −0.7418   0.4608
+\end_layout
+
+\begin_layout Plain Layout
+
+w           0.357688     0.136087      2.628    0.0106   **
+\end_layout
+
+\begin_layout Plain Layout
+
+w_1        −0.537362     0.185924     −2.890    0.0051   ***
+\end_layout
+
+\begin_layout Plain Layout
+
+w_2         0.631706     0.185828      3.399    0.0011   ***
+\end_layout
+
+\begin_layout Plain Layout
+
+w_3        −0.443685     0.122025     −3.636    0.0005   ***
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+Mean dependent var   13.27836   S.D.
+ dependent var   0.133614
+\end_layout
+
+\begin_layout Plain Layout
+
+Sum squared resid    0.000937   S.E.
+ of regression   0.003685
+\end_layout
+
+\begin_layout Plain Layout
+
+R-squared            0.999344   Adjusted R-squared   0.999240
+\end_layout
+
+\begin_layout Plain Layout
+
+F(11, 69)            9557.579   P-value(F)           3.4e-105
+\end_layout
+
+\begin_layout Plain Layout
+
+Log-likelihood       345.4523   Akaike criterion    −666.9046
+\end_layout
+
+\begin_layout Plain Layout
+
+Schwarz criterion   −638.1712   Hannan-Quinn        −655.3763
+\end_layout
+
+\begin_layout Plain Layout
+
+rho                 −0.048209   Durbin's h          −2.169477
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+Excluding the constant, p-value was highest for variable 141 (inc_3)
+\end_layout
+
+\begin_layout Plain Layout
+
+*** NOTE: 0.00 pct.
+ of the 1000 bootstrap iterations failed due to instability.
+ 
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+This took 0.643 sec.
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset VSpace bigskip
+\end_inset
+
+Note that all of the bootstrap models were dynamically stable.
+\end_layout
+
+\begin_layout Subsection
+Long-run multipliers and standard errors
+\end_layout
+
+\begin_layout Standard
+Once the 
+\family typewriter
+runARDL()
+\family default
+ function was called, we have generated all information to proceed.
+ For computing the long-run dynamic multipliers, we just need to call the
+ 
+\family typewriter
+LRbeta()
+\family default
+ function.
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Doublebox
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+#---------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+# Compute bootstrap error-correction coeff.
+ + 
+\end_layout
+
+\begin_layout Plain Layout
+
+# long-run multipliers based on ARDL
+\end_layout
+
+\begin_layout Plain Layout
+
+#---------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+LRbeta(&b)
+\end_layout
+
+\begin_layout Plain Layout
+
+# grab bootstrap mean, median and SD of long-run multiplier for variable
+ "inc"
+\end_layout
+
+\begin_layout Plain Layout
+
+matrix LRinc = b.LRbeta_inc
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset VSpace defskip
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+The corresponding output is:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Doublebox
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+******************************************
+\end_layout
+
+\begin_layout Plain Layout
+
+*** ARDL (3) in levels regression       ***
+\end_layout
+
+\begin_layout Plain Layout
+
+******************************************
+\end_layout
+
+\begin_layout Plain Layout
+
+Settings for dynamic multiplier computation
+\end_layout
+
+\begin_layout Plain Layout
+
+Shock type: permanent
+\end_layout
+
+\begin_layout Plain Layout
+
+Bootstrap iterations: 1000
+\end_layout
+
+\begin_layout Plain Layout
+
+Bootstrap type: non-parametric
+\end_layout
+
+\begin_layout Plain Layout
+
+Confidence interval: 0.90
+\end_layout
+
+\begin_layout Plain Layout
+
+******************************************
+\end_layout
+
+\begin_layout Plain Layout
+
+*** Error-correction model bootstrap   ***
+\end_layout
+
+\begin_layout Plain Layout
+
+*** coefficient estimates	       ***
+\end_layout
+
+\begin_layout Plain Layout
+
+******************************************
+\end_layout
+
+\begin_layout Plain Layout
+
+Error correction coeff.
+ rho (bootstrap values)
+\end_layout
+
+\begin_layout Plain Layout
+
+----------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+	Median 	Median 	 S.D.
+\end_layout
+
+\begin_layout Plain Layout
+
+rho -0.2896  -0.2815   0.0880 
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+Long-run multipliers (bootstrap values)
+\end_layout
+
+\begin_layout Plain Layout
+
+----------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+	Mean 	Median 	 S.D.
+\end_layout
+
+\begin_layout Plain Layout
+
+Y     2.7925   2.5527   1.2458
+\end_layout
+
+\begin_layout Plain Layout
+
+inc     0.9955   0.9907   0.1305
+\end_layout
+
+\begin_layout Plain Layout
+
+w     0.0314   0.0335   0.1104
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+Bewley's long-run multipliers (2SLS point estimates)
+\end_layout
+
+\begin_layout Plain Layout
+
+---------------------------------------------- 
+\end_layout
+
+\begin_layout Plain Layout
+
+	Coeff.
+ 	S.D.
+\end_layout
+
+\begin_layout Plain Layout
+
+inc     0.9904   0.1641
+\end_layout
+
+\begin_layout Plain Layout
+
+w     0.0402   0.1361
+\end_layout
+
+\begin_layout Plain Layout
+
+******************************************
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset VSpace defskip
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+One can see that the bootstrap yields somehow smaller standard deviations
+ compared to Bewley's approach.
+ However, the long-run multipliers are of similar magnitude for 
+\begin_inset Formula $inc$
+\end_inset
+
+ and 
+\begin_inset Formula $w$
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Subsection
+Plot the dynamic multipliers
+\end_layout
+
+\begin_layout Standard
+We can easily plot the associated dynamic multipliers for each variable
+ over some horizon using the 
+\family typewriter
+irf_plot()
+\family default
+ function.
+ The following listing compiles a figure with the corresponding output.
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Doublebox
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+# Plot the response of "c" to a permanent unit increase in "inc"
+\end_layout
+
+\begin_layout Plain Layout
+
+irf_plot(b.DM_inc, "Shock of inc on c", "Horizon", "Response")
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset VSpace bigskip
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Here is the corresponding output with 90% confidence intervals.
+\end_layout
+
+\begin_layout Standard
+\begin_inset Graphics
+	filename ADMBP_fig1.png
+	scale 60
+	rotateOrigin center
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Alternatively we also offer a more sophisticated plotting function which
+ includes more plotting options for the user, e.g.
+ setting font size, line width, title and axis labeling.
+ In the following, we provide a loop function which computes the IRFs for
+ all possible cases and stores the three figures as pdf files, respectively.
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Doublebox
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+list Lplot = Lall - rxlist
+\end_layout
+
+\begin_layout Plain Layout
+
+strings S = varnames(Lplot)
+\end_layout
+
+\begin_layout Plain Layout
+
+S[1] = "Y" # The endogenous is always named "Y"
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\begin_layout Plain Layout
+
+#-----------------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+# Plot multipliers with additional options for drawing
+\end_layout
+
+\begin_layout Plain Layout
+
+# Save as *.pdf
+\end_layout
+
+\begin_layout Plain Layout
+
+#-----------------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+
+scalar font = 26  # set font size
+\end_layout
+
+\begin_layout Plain Layout
+
+scalar lw = 2.0   # set line width
+\end_layout
+
+\begin_layout Plain Layout
+
+loop foreach i Lplot -q
+\end_layout
+
+\begin_layout Plain Layout
+
+	string figpath = "@dotdir/irf_$i.pdf"
+\end_layout
+
+\begin_layout Plain Layout
+
+	string title = "foo"
+\end_layout
+
+\begin_layout Plain Layout
+
+	string xlab = "put a x label here"
+\end_layout
+
+\begin_layout Plain Layout
+
+	string ylab = "put a y label here"
+\end_layout
+
+\begin_layout Plain Layout
+
+	string shock = S[i]	# read out the name of the shock
+\end_layout
+
+\begin_layout Plain Layout
+
+	irf_plotadv(b.DM_@shock, figpath, title, xlab,ylab, 
+\backslash
+
+\end_layout
+
+\begin_layout Plain Layout
+
+	font, poslegend, lw)
+\end_layout
+
+\begin_layout Plain Layout
+
+endloop
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+List of public functions
+\end_layout
+
+\begin_layout Subsection
+setARDL
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Boxed
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+
+\family typewriter
+setARDL(series Y, list xlist, list rxlist[null], int pqmax[1::4], int crit[1:3:1
+], bool condARDL[1], int shocktype[0:1:], int btype[0:3:1], int bootrep[99::999]
+, int horiz[1::12], scalar cilevel[0.01:0.99:0.1], bool verb[1], scalar failstop[0.0
+1:0.9:0.2])
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Return type: 
+\family typewriter
+bundle
+\end_layout
+
+\begin_layout Standard
+The function arguments are:
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+series Y
+\family default
+: dependent variable
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+list xlist
+\family default
+: list of exogenous regressors
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+list rxlist[null]
+\family default
+: list of additional deterministic variables (optional)
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+int pqmax[1::4]
+\family default
+: Max.
+ lag length in levels for y and xlist variables (default 4)
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+int crit[1:3:1]
+\family default
+: Information criteria for automatic lag selection, 1=AIC, 2=BIC, 3=HQC
+ (default 1)
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+bool condARDL[1]
+\family default
+: include contemporaneous values of xlist (default yes)
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+int shocktype[0:1:]
+\family default
+: Compute dynamic multiplier for transitory (=0) or permanent (=1) change
+ in xlist-variable (default 1).
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+int btype[0:3:1]
+\family default
+: Select bootstrap type, 0=parametric, 1=non-parametric, 2=wild (uniform),
+ 3=wild (Rademacher), default 1.
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+int bootrep[99::999]
+\family default
+: Number of bootstrap iterations (default 999)
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+int horiz[1::12]
+\family default
+: Number of horizons to compute dynamic multipliers (default 12)
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+scalar cilevel[0.01:0.99:0.1]
+\family default
+: Width of confidence interval, alpha=1-cilevel (default 0.1 –> 90%)
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+bool verb[1]
+\family default
+: Print details (default yes)
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+scalar failstop[0.01, 0.9, 0.2]
+\family default
+: Fraction of failed bootstrap iterations before full stop (default 0.2)
+\end_layout
+
+\begin_layout Standard
+This is the basic function for setting up all relevant series, parameter
+ and options.
+ This function always has to be called first.
+\end_layout
+
+\begin_layout Subsection
+lagselect
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Boxed
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+
+\family typewriter
+lagselect(bundle *b)
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Return type: 
+\family typewriter
+void
+\end_layout
+
+\begin_layout Standard
+This function can be called 
+\emph on
+after
+\emph default
+ you have called 
+\family typewriter
+setARDL()
+\family default
+.
+ Selects the optimal number of lags of an unrestricted ARDL(
+\begin_inset Formula $p,q$
+\end_inset
+
+) model by minimizing some chosen information criteria.
+ The maximal lag is set by the scalar 
+\family typewriter
+pqmax
+\family default
+.
+\end_layout
+
+\begin_layout Standard
+This corresponding scalar will be automatically updated in the relevant
+ bundle once 
+\family typewriter
+lagselect()
+\family default
+ as called.
+ At the moment, the number of optimal lags has to be equal among all regressors
+ of 
+\begin_inset Formula $Y$
+\end_inset
+
+ and 
+\begin_inset Formula $xlist$
+\end_inset
+
+.
+ Currently, the user cannot define a gappy lag structure.
+\end_layout
+
+\begin_layout Subsection
+ECterm
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Boxed
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+
+\family typewriter
+ECterm(bundle *b)
+\end_layout
+
+\end_inset
+
+Return type: 
+\family typewriter
+series
+\end_layout
+
+\begin_layout Standard
+This function computes the error-correction term 
+\emph on
+aka
+\emph default
+ the cointegrating relationship, 
+\begin_inset Formula $\zeta_{t}$
+\end_inset
+
+, using the respective bootstrap median long-run coefficients.
+ To be more concrete, assume that variables 
+\begin_inset Formula $y_{t}$
+\end_inset
+
+ and 
+\begin_inset Formula $x_{t}$
+\end_inset
+
+ are both I(1) variables and cointegrated where 
+\begin_inset Formula $\beta$
+\end_inset
+
+ refers to the long-run coefficient such that the error, 
+\begin_inset Formula $\zeta_{t}$
+\end_inset
+
+, is also stationary:
+\begin_inset Formula 
+\[
+\zeta_{t}=y_{t}-\beta x_{t}.
+\]
+
+\end_inset
+
+ The literature discusses the following five cases
+\begin_inset Formula 
+\begin{align*}
+\text{\textbf{(I)} no constant:\;} & \zeta_{t}=y_{t}-\beta x_{t}\\
+\text{\textbf{(II)} restr. const.+no trend}:\; & \zeta_{t}=y_{t}-\beta x_{t}-\delta_{0}/\rho\\
+\text{\text{\textbf{(III)} unrestr. const+no trend}:\;} & \zeta_{t}=y_{t}-\beta x_{t}\\
+\text{\textbf{(IV)} unrestr. const +restr. trend:\;} & \zeta_{t}=y_{t}-\beta x_{t}-\delta_{1}/\rho\\
+\text{\textbf{(V)} unrestr. const.+unrestr. trend:\;} & \zeta_{t}=y_{t}-\beta x_{t}
+\end{align*}
+
+\end_inset
+
+where 
+\begin_inset Formula $\delta_{0}$
+\end_inset
+
+, 
+\begin_inset Formula $\delta_{1}$
+\end_inset
+
+ and 
+\begin_inset Formula $\rho$
+\end_inset
+
+ refer to the intercept, the coefficient of the linear trend and the error-corre
+ction coefficient.
+ Currently we support the computation of all cases except case 4.
+\end_layout
+
+\begin_layout Standard
+Based on our example where we estimated an ARDL model including an intercept
+ term, we can compute the two respective error-correction term for the cases
+ (II) and (III), respectively:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Boxed
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+#-------------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+# Compute bootstrap-based error-correction term
+\end_layout
+
+\begin_layout Plain Layout
+#-------------------------------------------------
+\end_layout
+
+\begin_layout Plain Layout
+ECterm(&b)
+\end_layout
+
+\begin_layout Plain Layout
+series ECM = b.ECM # error-correction term (case III)
+\end_layout
+
+\begin_layout Plain Layout
+ECMrc = b.ECMrc # error-correction term (case II)
+\end_layout
+
+\begin_layout Plain Layout
+gnuplot ECM ECMrc --time-series --with-lines --output=display
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+irf_plot
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Boxed
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+
+\family typewriter
+irf_plot(matrix m, string title, string xlab, string ylab)
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Return type: 
+\family typewriter
+void
+\end_layout
+
+\begin_layout Standard
+The function arguments are:
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+matrix m
+\family default
+: matrix with either one column (irf only), or with three columns (irf and
+ confidence bounds).
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+string title
+\family default
+: provide a string for the title.
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+string xlab
+\family default
+: provide a string for the x-label.
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+string ylab
+\family default
+: provide a string for the y-label.
+\end_layout
+
+\begin_layout Standard
+This function plots the dynamic multipliers immediately on the screen.
+\end_layout
+
+\begin_layout Subsection
+irf_plotadv
+\end_layout
+
+\begin_layout Standard
+\begin_inset Box Boxed
+position "t"
+hor_pos "c"
+has_inner_box 1
+inner_pos "t"
+use_parbox 0
+use_makebox 0
+width "100col%"
+special "none"
+height "1in"
+height_special "totalheight"
+thickness "0.4pt"
+separation "3pt"
+shadowsize "4pt"
+framecolor "black"
+backgroundcolor "none"
+status open
+
+\begin_layout Plain Layout
+
+\family typewriter
+irf_plot(matrix m, string fname, string title, string xlab, string ylab,
+ int fontsize[5::14], scalar lw)
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Return type: 
+\family typewriter
+void
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+matrix m
+\family default
+: matrix with either one column (irf only), or with three columns (irf and
+ confidence bounds).
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+string fname
+\family default
+: provide the path and filename (+file extension, e.g.
+ pdf, png, eps) for storing the graph.
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+string title
+\family default
+: provide a string for the title.
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+string xlab
+\family default
+: provide a string for the x-label.
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+string ylab
+\family default
+: provide a string for the y-label.
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+int fontsize[5::14]
+\family default
+: set the font size (default 14)
+\end_layout
+
+\begin_layout Enumerate
+
+\family typewriter
+scalar lw
+\family default
+: set the line width.
+\end_layout
+
+\begin_layout Section*
+References
+\end_layout
+
+\begin_layout Standard
+Bewley, R.A.
+ (1979): The direction estimation of the equilibrium response in a linear
+ dynamic model, 
+\emph on
+Economic Letters
+\emph default
+, 3, 357-361.
+\end_layout
+
+\begin_layout Standard
+Hassler, U.
+ and J.
+ Wolters (2006): Autoregressive Distributed Lag Models and Cointegration,
+ 
+\emph on
+Allgemeines Statistisches Archiv
+\emph default
+ 0, 0–15.
+\end_layout
+
+\begin_layout Standard
+Pesaran M.H.
+ and Y.
+ Shin (1999): An autoregressive distributed lag modelling approach to cointegrat
+ion analysis, 
+\emph on
+Econometrics and Economic Theory in the 20th Century: The Ragnar Frisch
+ Centennial Symposium
+\emph default
+, Strom S (ed.).
+ Cambridge University Press: Cambridge.
+\end_layout
+
+\end_body
+\end_document

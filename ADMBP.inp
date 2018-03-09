@@ -1,0 +1,1001 @@
+#clear 
+set verbose off
+/*
+
+   ***	ADMBP: ARDL Dynamic Multiplier Bootstrap Package ***
+
+   This gretl code was written by:
+   Artur Tarassow
+   artur.tarassow@gmail.com
+   https://sites.google.com/site/arturtarassow/code/test
+
+   This package computes:
+   (A) The optimal lag length of ARDL(p,p) in levels.
+   (B) Bootstrap dynamic multipliers based on an ARDL(p,p) in levels.
+   (C) Bootstrap mean, median and standard error of long-run multipliers
+   which are equivalent to the cointegrating coefficients of
+   an error-correction model (ECM).
+   (D) The error-correction term as well as error-correction
+   coefficient (rho) of an underlying ECM using the bootstrap median
+   cointegration coefficients.
+   (E) 4 different bootstrap types are available: 1) parametric,
+   2) non-parametric, 3) wild (based on uniform distrib.),
+   4) wild (Rademacher distrib.).
+
+   +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   *** NOTE: This package replaces the less sophisticated package 	   ***
+   *** "dynMultipl" vers. 0.91 (2014-11-07) which will be deleted soon.***
+   +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+   -----------------
+   Function overview
+   -----------------
+
+   *** setARDL() ***	MUST BE CALLED FIRST!
+   *** Setup all necessary information before estimating the ARDL
+   INPUT:
+   - Y 			- series, Level of endogenous I(1) variable
+   - xlist		- list, List of exog. I(1) level variables   
+   - rxlist		- list, List of restricted I(0) variables + determinstics incl. intercept
+   - pqmax		- int, Max. lag length in levels for y and xlist only!
+   - crit		- int, Information criteria: 1=AIC, 2=BIC, 3=HQ for determining optimal lag length
+   - condARDL	- bool, Insert contemporanoeus effect of xlist: 0=NO (reduced form), 1=YES (conditional ARDL)
+   - shocktype	- int, Shocktype: 0=transitory, 1=permanent change in shock variable
+   - btype		- int, Bootstrap type: 0=parametric, 1=non-parametric, 2=wild uniform, 3=wild Rademacher
+   - bootrep	- int, No. of bootstrap replications
+   - horiz		- int, Periods to compute multipliers
+   - cilevel	- scalar, Width confidence intervals alpha=(1-cilevel)
+   - verb		- bool, Print details: 0=NO. 1=YES   
+   OUTPUT:
+   - b			- bundle, stores relevant information in a bundle
+   
+
+   *** lagselect() *** MUST BE CALLED BEFORE runARDL() IFF WISHED
+   *** Note: We make use of gretl's internal var() command.
+   *** Note: Only the lag lengths of y and xlist are varied but not rxlist.
+   INPUT:
+   - b			- bundle, all necessary information are provided by setARDL() already
+   OUTPUT:
+   - pq			- the optimal lag length of the ARDL(p,p). Thus, "pq" replaces the initial entry "pqmax".
+
+
+   *** runARDL() ***	Estimate the ARDL and conduct the bootstrap analysis
+   *** This function estimates the ARDL(pq) and starts the bootstrap dynamic
+   *** multiplier analysis
+   INPUT:
+   - b			- bundle, all necessary information are provided by setARDL() already
+   OUTPUT:
+   - b			- bundle, stores relevant information in a bundle
+   - DM_raw_*	- (1+horiz) by bootrep matrix holding all bootstrap dynamic multipliers
+   of the response of Y to a change in variable *
+   - DM_*		- matrix, (1+horiz) by 3, holding the lower bound ~ median ~ upper bound of the
+   respective dynamic multiplier
+   - failed		- no. of failed iterations due to instability of the ARDL
+   - BHAT_b		- bootrep by ncoeff matrix holding the point estimates of all regressors for each iteration
+  
+
+   *** ysim() ***	Simulate an ARDL process
+   INPUT:
+   - y			- series, observed time-series of the endogenous
+   - Z			- list, list of regressors + deterministics
+   - beta		- matrix, vector of coefficients with the same ordering as in Z
+   - ARcoef		- matrix, vector of the AR coefficients of y
+   - y0			- scalar, initial value of y
+   - uhat		- series, error terms
+   OUTPUT:
+   - Ysim		- series, simulated time-series of y
+
+
+   *** LRbeta *** 	Transforms the ARDL level model into an ECM in order
+   *** to obtain the the error-correction coeff. "rho", the long-run 
+   *** multipliers (median bootstrap values) and its bootstrap S.D.
+   INPUT:
+   - b			- bundle, all necessary information are provided by runARDL() already
+   OUTPUT:
+   - LRbeta_*	- 1 by 3 matrix holding the bootstrap mean~median~sd of the long-run
+   (cointegration) coefficient of variable *
+   - LRbeta_*_b	- bootrep by 1 matrix holding the bootstrap long-runcoefficient of variable *
+   - RHO		- 1 by 3 matrix holding the bootstrap mean~median~sd of the error-correction 
+   coefficient (speed of adjustment back to the long-run attractor.
+   - RHO_b		- bootrep by 1 matrix holding the bootstrap error-correction coefficient
+   
+   
+   *** ECterm() ***  Computes the  error correction term based on bootstrap median long-run coeff.
+   INPUT:
+   - b			- bundle, all necessary information are provided by runARDL() already
+   OUTPUT:
+   - ECM		- series holding the error correction term (deviations from long-run attractor)
+
+
+   *** dmfilt() ***		Recursive computation of dynamic multipliers based on ARDL
+   INPUT:
+   - ARcoef		- matrix, vector of DL coefficients
+   - ycoef		- matrix, vector of AR 
+   - horiz		- int, no. of periods to compute
+   - shocktype	- int, 0=transitory or 1=permanent shock
+   OUTPUT:
+   - DM			- (1+horiz) by 1 vector of dynamic multipliers
+
+
+   *** irf_plot() *** 
+   INPUT: 
+   (matrix m "irf or irf + ci bounds",
+   string title, string xlab, string ylab)
+   OUTPUT:
+    
+   ***irf_plotadv() ***
+   INPUT: 
+   (matrix mplot,
+   string fname, string title, string xlab, string ylab,
+   int mono[0:1:0] "Monochrome" {"Colored", "Monochrome"},
+   int fontsize[5::14] "Set font size in pt",
+   int legend [0:1:1] "Legend" {"Off", "On"},
+   int poslegend[0:4:4] "Legend position",
+   scalar lw "linewidth")    
+   OUTPUT:
+
+
+
+   ToDo
+   * Allow for differences in the lag length for y and x_i
+   * Allow for gappy lag structure
+
+   Changelog:
+   *	vers. 0.1 (June, 2016)
+   *		- Implement basic stuff
+*/
+
+# Helper function
+function void strfilt (list L, strings *S)
+    # Get rid of "_" and numbers 1-9 in variable name
+    #strings S = null
+    loop foreach i L -q
+        string s = "$i"
+        s = strsub(s,"_","")
+        loop j=1..9 -q
+            s = strsub(s,"$j","")
+        endloop
+        S+=s
+    endloop
+end function
+
+# public function
+function void lagselect (bundle *b)
+    if b.pq == 1
+        funcerr "*** For using lagselect(), you have set the max. lag length pq>1 ***"
+    endif
+    series y = b.my
+    list xlist = b.mx
+    list rxlist = b.mrx        
+    lags xlist    
+    smpl +b.pq ;
+    matrix mat = zeros(b.pq,3)
+    sprintf rnam "%2.0f ", seq(1,b.pq)
+    loop i=1..b.pq -q       
+        list Lx = xlist(b.pqmin to -$i) rxlist
+        catch var $i y ; Lx --silent
+        if $error
+            mat[i,]=NA ~ NA ~ NA
+        else                
+            mat[i,]=$aic ~ $bic ~ $hqc
+        endif        
+    endloop
+    matrix b.pq = iminc(mat[,b.crit])    
+    
+    if b.optsil == ""
+        printf "\n*** Lag selection based on %d obs. ***\n", $nobs
+        printf "--------------------------------------\n"
+        colnames(mat, "AIC BIC HQ")
+        rownames(mat, rnam)
+        printf "%12.4f\n", mat
+        printf "The selected information criteria suggests an ARDL(%d,%d) in levels.\n", b.pq, b.pq
+        printf "\n"
+    endif
+end function    
+
+# Helper function
+function void arstab (matrix ARcoef, scalar *error)
+    if -(1-sum(ARcoef))>-0.00001
+        error=1
+    else
+        error=0
+    endif
+end function
+
+# public function
+function bundle setARDL( const series Y "Level of endogenous",
+      const list xlist "List of exog. in levels",
+      const list rxlist[null] "List of restricted I(0)s excl. intercept",
+      int pqmax[1::4] "Max. lag length in levels to test for y and xlist only!",
+      int crit[1:3:1] "Info criteria" {"AIC", "BIC", "HQ"},
+      bool condARDL[1] "Consider contemporanoeus effects of xlist (1:yes)",
+      int shocktype[0:1:] "Shocktype" {"0=transitory", "1=permanent"},
+      int btype[0:3:1] "Type of bootstrap" {"0=parametric", "1=non-parametric", "2=wild uniform", "3=wild Rademacher"},
+      int bootrep[99::999] "No. of bootstrap repl.",
+      int horiz[1::12] "Horzion periods",
+      scalar cilevel[0.01:0.99:0.1] "Width confidence intervals alpha=(1-cilevel)",
+      bool verb[1] "Print details 0:No, 1:Yes",
+      scalar failstop[0.01:0.9:0.2] "Fraction of failed bootstrap iterations before full stop")
+
+    bundle b
+
+    scalar b.addDET = 0
+    if strstr(varname(rxlist), "const")!=""
+        scalar b.addDET = 1
+        rxlist -= const
+    endif
+        
+    list Lall = Y xlist rxlist
+    strings Sall = null
+    strfilt(Lall, &Sall)
+    b.Sall = Sall
+
+    matrix b.my = {Y}
+    matrix b.mx = xlist
+    matrix b.mrx = rxlist
+    b.nx = nelem(xlist)
+    b.nrx = nelem(rxlist)
+
+    b.pq = pqmax
+    b.crit = crit
+    b.condARDL = condARDL
+    if b.condARDL==1
+        pqmin = 0
+    else
+        pqmin = -1
+    endif        
+    b.pqmin = pqmin
+    b.cilevel = cilevel
+    b.btype = btype
+    b.bootrep = bootrep
+    b.horiz = horiz
+    b.shocktype = shocktype
+    b.failstop = failstop    
+    if verb==1
+        string b.optsil = ""
+    else
+        string b.optsil = "--quiet"
+    endif   
+    return b
+end function
+    
+# public function
+function void runARDL (bundle *b)
+
+    series Y = b.my
+    list xlist = b.mx
+    list rxlist = b.mrx
+    lags Y xlist
+    quiet = b.optsil
+        
+    if b.optsil==""
+        ARDLinfo(&b)
+    endif
+    # TODO: In principle we could provide an user-defined matrix before calling runARDL()
+    # This could be helpful if want to provide a gappy coefficient matrix with some
+    # zeros or fixed parameters (for whetever reasons).
+    list lDET = null
+    if b.addDET==1
+        list lDET += const
+    endif
+
+    ols Y lDET Y(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist @quiet
+    # Evaluate stability first
+    scalar b.ay = b.addDET + 1
+    scalar b.ey = b.ay+b.pq-1
+    scalar err = 0
+    b.ARcoef = $coeff[b.ay:b.ey]
+    arstab($coeff[b.ay:b.ey],&err)
+    scalar b.cancel = 0
+    if err
+        printf "*** NOTE: Your model is unstable. ***\n"
+        printf "*** Please re-specify and try again. ***\n"
+        cancel=1
+    endif
+    if b.cancel==0
+        scalar b.ax = b.ey+1
+        scalar b.ex = b.ax + b.nx*(b.condARDL + b.pq)-1
+    
+        # Zcoef: Const.~X1(0 to -pq)~...~Xk(0 to -pq)~rxlist (incl. time, dummies etc.)
+        if b.addDET>0
+            b.Zcoef = $coeff[1:(b.ay-1)] | $coeff[b.ey+1:]	# Deterministics + DL coeff needed for ysim()
+        else
+            b.Zcoef = $coeff[b.ey+1:]
+        endif    
+        b.muhat = {$uhat}
+
+        # Run dmARDL()
+        bootARDL(&b)
+    
+        # Compute median and confidence intervals of dynamic multipliers for each variable y and xlist.
+        # DM_@vname: lower bound ~ median ~ upper bound
+        matrix crit = {b.cilevel/2,0.5,(1-b.cilevel/2)}
+        loop i=1..(1+b.nx) -q
+            string vname = b.Sall[$i]
+            b.DM_@vname = quantile(b.DMraw_@vname', crit)'
+        endloop
+        
+    else
+        # unstable case
+        loop i=1..(1+b.nx) -q
+            string vname = b.Sall[$i]
+            matrix b.DM_@vname = NA
+        endloop
+    endif
+    
+end function
+   
+# helper function
+function void drawE (bundle *b, series *e)
+    series uhat = b.muhat
+    uhat = uhat-mean(uhat)
+
+    if b.btype==0
+        series e = normal(0,sd(uhat))	# parametric bootstrap
+    elif b.btype==1
+        series e = resample(uhat)		# draw from estimated residuals by resampling (may suffer from serial correl.)
+    elif b.btype==2						# wild uniform
+        series e = resample(uhat) * uniform(0,1)
+    elif b.btype==3						# Use Rademacher distrib. instead of uniform(0,1)
+        series Rad = uniform(0,1)
+        Rad = -1*(Rad<=0.5) + (Rad>0.5)
+        series e = resample(uhat) * Rad
+    endif
+end function
+    
+
+# helper function
+function void bootARDL (bundle *b)
+    
+    series Y = b.my
+    list xlist = b.mx
+    list rxlist = b.mrx
+    series uhat = b.muhat
+    string quiet = b.optsil
+        
+    lags Y xlist
+    if b.addDET>0
+        list Z = const xlist(b.pqmin to -b.pq) rxlist
+    else
+        list Z = xlist(b.pqmin to -b.pq) rxlist
+    endif    
+    matrix Xbeta = b.Zcoef
+    
+    loop i=1..(1+b.nx) -q
+        matrix mout$i = zeros(1+b.horiz,b.bootrep) 	# Store dynamic multipliers of each xlist regressor
+    endloop
+
+    scalar nloop=1
+    scalar failed = 0
+    # Start bootstrap DGP
+    loop while nloop<=b.bootrep -q
+    
+        series e = 0
+        drawE (&b,&e)
+        
+        # Simulate the DGP
+        series y_b = zeromiss(0)
+        varsimA(Y, b.ARcoef, Z, Xbeta, e, b.pq, &y_b)
+
+        lags y_b 1
+        list ylist_b = y_b(-1 to -b.pq)
+        if b.addDET==1
+            ols y_b const ylist_b xlist(b.pqmin to -b.pq) rxlist --quiet        
+        else
+            ols y_b ylist_b xlist(b.pqmin to -b.pq) rxlist --quiet        
+        endif
+        if nloop==1
+            matrix BHAT_b = zeros(b.bootrep,nelem($xlist))
+        endif
+
+        matrix ARcoef_b = $coeff[b.ay:b.ey]
+        if (sum($coeff[b.ay:b.ey])-1)>-0.00001
+            failed++
+            if failed/b.bootrep >= b.failstop                
+                printf "*** ERROR: %d pct. of the bootstrap iterations failed due to instability. ***\n", 100*b.failstop
+                printf "*** Re-consider to re-specify your model. ***\n"
+                break
+            endif
+        else
+            BHAT_b[nloop,] = $coeff'
+            shockbeta = $coeff[b.ax:b.ex]
+            shockbeta = mshape(shockbeta,(b.condARDL+b.pq),b.nx)
+            loop i=1..(1+b.nx) -q
+                matrix mtmp = zeros(b.horiz,1)
+                if i==1		# response of y to a shock in y
+                    dmfilt(ARcoef_b, ARcoef_b, b.horiz, b.shocktype, &mtmp)
+                else		# response of y to a shock in x_i
+                    dmfilt(ARcoef_b, shockbeta[,i-1], b.horiz, b.shocktype, &mtmp)
+                endif
+                mout$i[,nloop] = mtmp
+            endloop
+            nloop++
+        endif
+    endloop
+
+    b.BHAT_b = BHAT_b
+    loop i=1..(1+b.nx) -q
+        string vname = b.Sall[$i]
+        matrix b.DMraw_@vname = mout$i
+    endloop
+    if quiet!="--quiet"
+        printf "*** NOTE: %.2f pct. of the %d bootstrap iterations failed due to instability. ***\n", failed/b.bootrep, b.bootrep
+        printf "\n"
+    endif
+    b.failed = failed
+    
+    # Clean up the bundle
+    delete b.nrx
+    delete b.crit
+    #delete b.mrx
+    delete b.Zcoef
+    #delete b.btype
+    #delete b.shocktype
+    delete b.ARcoef
+    #delete b.addDET
+    #delete b.pqmin    
+    delete b.muhat
+end function
+
+/*
+# private function
+function void ysim (series y,
+      matrix ARcoef,    
+      list Z "xlist~rxlist~uhat",
+      matrix DLcoef "Coefficients of all exogenous | 1 (for uhat)",
+      scalar pq,
+      scalar y0, series *Ysim)
+    
+      series z = lincomb(Z, DLcoef)
+      series Ysim = filter(z,1,ARcoef,y0)
+      smpl $t1 $t1+pq-1
+      Ysim = y 			#initial values    
+      smpl full
+end function
+*/
+
+# helper function
+function void varsimA (series Y,
+                       matrix ARbeta "Coeff. vector of Y",
+                       list X "rxlist ~ xlist of exogenous (-pmin to -p)",
+                       matrix Xbeta "coeff vector of Xs",
+                       series e "resampled",
+                       int p,
+                       series *ysim)
+    # Thankfully borrowed from Jack!
+    series m = lincomb(X, Xbeta)
+    scalar T = minr(rows({e})~rows({m}))
+    if p>1
+        matrix A = ARbeta' | (I(p-1) ~ 0)
+    else
+        matrix A = ARbeta'
+    endif
+    matrix y0 = mreverse({Y}[1:p])'
+    matrix U = {e + m} ~ zeros(T, p-1)
+    matrix S = varsimul(A, U, y0)
+    S = S[,1]
+    if p>1
+        S = {Y}[1:p-1] | S
+    endif
+    series ysim = S
+end function
+
+# helper function
+function void ARDLinfo (bundle *b)
+    printf "\n******************************************\n"
+    printf "*** ARDL (%d) in levels regression       ***\n", b.pq
+    printf "******************************************\n"
+    printf "\nSettings for dynamic multiplier computation\n"    
+    
+    if b.shocktype==0
+        string stype = "temporary"
+    else
+        string stype = "permanent"
+    endif        
+    printf "\nShock type: %s\n", stype
+    printf "Bootstrap iterations: %d\n", b.bootrep
+    if b.btype==0
+        string btype = "parametric"
+    elif b.btype==1
+        string btype = "non-parametric"
+    elif b.btype==2
+        string btype = "wild (uniform)"
+    elif b.btype==3
+        string btype = "wild (Rademacher)"
+    endif
+    printf "Bootstrap type: %s\n", btype
+    printf "Confidence interval: %.2f\n", (1-b.cilevel)
+end function
+
+# helper function
+function void ECMinfo (bundle *b)
+    printf "\n******************************************\n"
+    printf "*** Error-correction model bootstrap   ***\n"
+    printf "*** coefficient estimates	       ***\n"
+    printf "******************************************\n"
+    
+    printf "\nError correction coeff. rho (bootstrap values)\n"
+    printf "----------------------------------------------\n"
+    printf "\tMedian \tMedian \t S.D.\n"
+    printf "rho %10.4f %8.4f %8.4f \n", b.RHO[1], b.RHO[2], b.RHO[3]
+
+    printf "\nLong-run multipliers (bootstrap values)\n"
+    printf "----------------------------------------------\n"
+    printf "\tMean \tMedian \t S.D.\n"
+    loop i=1..(1+b.nx) -q
+        string vname = b.Sall[$i]    
+        printf "%s %10.4f %8.4f %8.4f\n", b.Sall[$i], b.LRbeta_@vname[1], b.LRbeta_@vname[2], b.LRbeta_@vname[3]
+    endloop
+    
+    printf "\nBewley's long-run multipliers (2SLS point estimates)\n"
+    printf "----------------------------------------------\n"
+    printf "\tCoeff. \tS.D. \n"
+    loop i=2..(1+b.nx) -q
+        string vname = b.Sall[$i]    
+        printf "%s %10.4f %8.4f\n", b.Sall[$i], b.LRBew[i-1], b.LRBewSE[i-1]
+    endloop
+    printf "******************************************\n"
+end function
+
+# public function
+function void LRbeta(bundle *b)
+    # Transform the ARDL level model coefficients in order
+    # to obtain the the error-correction coeff. "rho", the long-run 
+    # multipliers (median bootstrap values) and its bootstrap S.D.
+
+    # RHO = -[1-SUM_j=1^pq a_{t-j}]
+    matrix ybeta = b.BHAT_b[,b.ay:b.ey]
+    matrix b.RHO_b = -(1-sumr(ybeta))
+    matrix b.RHO = meanc(b.RHO_b) ~ quantile(b.RHO_b,0.5) ~ sd(b.RHO_b)
+    colnames(b.RHO, "Mean Median SD")    
+
+    # Long-run multiplier
+    # b_i = (SUM_j=0^pq c_{t-j})/(1-rho)
+    matrix xbetas = b.BHAT_b[,b.ax:b.ex]
+    scalar in=1
+    loop i=1..(1+b.nx) -q
+        string vname = b.Sall[$i]
+        if i==1
+            matrix b.LRbeta_@vname_b = sumr(ybeta)./(1.-sumr(ybeta))	# long-run multiplier of a change in y on y
+        else
+            out=in+(b.condARDL+b.pq)-1
+            cmat = xbetas[,in:out]
+            b.LRbeta_@vname_b = sumr(cmat)./(1.-sumr(ybeta))	# long-run multiplier of a change in x_i on y
+            in=in+(b.condARDL+b.pq)
+        endif
+        matrix b.LRbeta_@vname = mean(b.LRbeta_@vname_b) ~ quantile(b.LRbeta_@vname_b,0.5) ~ sd(b.LRbeta_@vname_b)
+        colnames(b.LRbeta_@vname, "Mean Median SD")
+    endloop    
+    
+    # Compute LR coeff and SEs using Bewley's IV estim.
+    Bewley(&b)
+
+    # Print results
+    if b.optsil == ""
+        ECMinfo(&b)
+    endif
+
+    #/*    
+       # Bundle cleanup
+       delete b.nx
+       delete b.pq
+       delete b.ey
+       delete b.ax
+       delete b.ex
+       delete b.ay
+       delete b.condARDL
+       delete b.cilevel
+       delete b.optsil
+    #*/
+end function
+
+# helper function
+function void Bewley(bundle *b)
+    # Estimate the long-run multiplier and associated
+    # S.E. using the IV approach by Bewley (1979)
+   
+    series Y = b.my
+    series dY = diff(Y)
+    list xlist = b.mx
+    list Dxlist = diff(xlist)
+    list rxlist = b.mrx
+    
+    lags Y xlist
+        
+    if b.optsil==""
+        ARDLinfo(&b)
+    endif
+
+    list lDET = null
+    if b.addDET==1
+        lDET+=const        
+    endif
+    #-------------
+    # Bewley(1979)
+    #-------------
+    # Set the instruments
+    pqmin = b.pqmin
+    list inst = lDET Y(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
+    # IV 2SLS
+    list all = lDET xlist dY(0 to -(b.pq+1)) Dxlist(0 to -(b.pq+1)) rxlist
+    tsls Y lDET xlist dY(b.pqmin to -(b.pq-1)) Dxlist(b.pqmin to -(b.pq-1)) rxlist ; inst --robust --quiet
+
+    scalar nx = nelem(xlist)
+    scalar ax = 1+nelem(lDET)
+    scalar ex = ax+nx-1
+    matrix LRBew = $coeff[ax:ex]
+    matrix LRBewSE = $stderr[ax:ex]
+    b.LRBew = LRBew
+    b.LRBewSE = LRBewSE
+    
+end function
+
+# public function
+function void ECterm(bundle *b)
+    # Compute error correction term (cointegrating relationship)
+    # based on bootstrap median long-run coeff.
+    # See for the different cases:
+    # -->http://blog.eviews.com/2017/04/autoregressive-distributed-lag-ardl.html
+    # Case 1: no constant
+    # --> ECt = yt - b'x_t
+    # Case 2: restricted constant and no trend
+    # --> ECt = yt - b'x_t - a0/rho
+    # Case 3: unrestricted constant and no trend
+    # --> ECt = yt - b'x_t
+    # Case 4: unrestricted constant and restricted trend
+    # --> ECt = yt - b'x_t - a1/rho
+    # Case 5: unrestricted constant and unrestricted trend
+    # --> ECt = yt - b'x_t
+    # TODO: add constant cases!
+    
+    series Y = b.my
+    list xlist = b.mx
+    scalar nx = nelem(xlist)
+    matrix beta = zeros(nx,1)
+    loop i=1..nx -q
+        string vname = b.Sall[1+$i]
+        beta[i] = b.LRbeta_@vname[2]			# based on median value
+    endloop
+    list LR = xlist
+    list lall = Y LR
+    matrix X = {lall}
+    series b.ECM = Y - lincomb(LR,beta)
+    #setinfo b.ECM --description="EC unrestricted const. "
+    if b.addDET==1
+        scalar a0 = quantile(b.BHAT_b[,1],0.5)	# bootstrap median constant
+        series b.ECMrc = Y - lincomb(LR,beta) - a0/b.RHO[2]	# Case 2
+        #setinfo b.ECMrc --description="EC restricted const."
+    endif
+end function
+
+
+# helper function
+function void dmfilt(matrix ARcoef, matrix ycoef,
+      int horiz, int shocktype, matrix *DM)
+    matrix impulse = ones(horiz + 1, 2)
+    impulse[2:,1] = 0
+    DM = filter(impulse, ycoef, ARcoef)
+    if shocktype==0
+        DM = DM[,1]
+    elif shocktype==1
+        DM = DM[,2]
+    endif
+end function
+
+# public function
+function void irf_plot(matrix m "irf or irf + ci bounds",
+      string title, string xlab, string ylab)
+    plot m
+        option single-yaxis
+        options with-lines time-series
+        literal set linetype 1 lc 1 dt 2
+        literal set linetype 2 lc 1
+        literal set linetype 3 lc 1 dt 2
+        literal set nokey
+        #literal set xtics 1
+        printf "set title \"%s\"", title
+        printf "set xlabel \"%s\"", xlab
+        printf "set ylabel \"%s\"", ylab
+    end plot --output=display
+end function
+
+# public function
+function void irf_plotadv(matrix mplot,
+      string fname, string title, string xlab, string ylab,
+      int fontsize[5::14] "Set font size in pt",
+      scalar lw "linewidth")      
+    # Inspired by http://www.gnuplotting.org/attractive-plots/
+    sprintf LW "%.2f", lw
+    sprintf FS "%.1f", fontsize
+    sprintf strLEG "set nokey"
+
+    plot mplot
+        options with-lines time-series single-yaxis font="serif,@FS"
+        #printf "set term pdfcairo font 'Helvetica,%d' lw %.2f", fontsize, lw
+        literal @strLEG				# Legend options 
+        literal set title "@title"
+        literal set xlabel "@xlab" offset 0,1		# Move xlabel closer to the x-axis
+        literal set ylabel "@ylab"
+        literal set y2tics
+        literal set xtics out offset 0,0.7			# Move xtics cloer to the x-axis
+        literal set ytics out
+        #2) put the border more to the background by applying it
+        # only on the left and bottom part and put it and the tics in gray
+        literal set style line 11 lc rgb "#808080" lt 1
+        literal set border 3 back ls 11			# get rid of upper + left border
+        literal set tics nomirror
+        #add a slight grid to make it easier to follow the exact position of the curves
+        literal set style line 12 lc rgb "#808080" lt 0 lw 1	# light grey color
+        literal set grid back ls 12
+        # Line Styles
+        literal set linetype 1 lc 5 dt 2 lw @LW
+        literal set linetype 2 lc 5 lw @LW
+        literal set linetype 3 lc 5 dt 2 lw @LW
+
+    end plot --output="@fname"
+end function
+
+
+/*
+   #--------------------------------------------------
+   # EXAMPLE 0 Replicate Oleh's lagreg() ARDl example
+   #--------------------------------------------------
+   open greene5_1.gdt
+
+   g = 100*diff(realgdp)/realgdp
+   d_u = diff(unemp)
+   smpl 1980:1 1999:4
+   
+
+   # ARDL parameters
+   scalar pqmax = 2
+   scalar condARDL = 1
+   scalar infocrit = 2
+   # Bootstrap and confidence interval parameters
+   scalar horiz = 10
+   scalar cilevel = 0.1
+   scalar btype = 1
+   scalar bootrep = 1000
+   scalar shocktype = 0
+   scalar verbose = 1
+
+   ## ARDL model
+   list rxlist = const #time
+   list xlist = g
+   list Lall = d_u xlist rxlist
+
+   #------------------------
+   # Set up the base bundle
+   #------------------------
+   bundle b = setARDL(d_u, xlist, rxlist, pqmax,
+   infocrit, condARDL, shocktype, btype, bootrep, \
+     horiz, cilevel, verbose)
+
+   #--------------------------------------------
+   # Determine the optimal lag length (optional)
+   #--------------------------------------------
+   #lagselect(&b)
+
+   #---------------------------------------
+   # Compute bootstrap dynamic multipliers 
+   #---------------------------------------
+   set stopwatch
+   runARDL(&b)
+   printf "This took %.3f sec.\n", $stopwatch
+   #---------------------------------------------
+   # Compute bootstrap error-correction coeff. + 
+   # long-run multipliers based on ARDL
+   # Compute bootstrap error-correction term
+   # y - bx = z based on bootstrap median value of b
+   #---------------------------------------------
+   LRbeta(&b)
+   matrix LRg = b.LRbeta_g
+   print LRg
+   ECterm(&b)
+   series ECM = b.ECM
+   setinfo ECM --graph-name="Error correction term"
+   gnuplot ECM --time-series --with-lines --output=display
+
+   #------------------
+   # Plot multipliers
+   #------------------
+   list Lplot = Lall - rxlist
+   strings S = varnames(Lplot)
+   S[1] = "Y"					# The endogenous is always named "Y"
+   loop foreach i Lplot -q    
+   string ylab = ""
+   string xlab = "Horizon"
+   string shock = S[i]		# For the endogenous always use "y" irrespetive of the actual name!
+   # Plot the bootstrap median and confidence intervall of the response of y on a change in "shock"
+   irf_plot(b.DM_@shock, "Shock of @shock on Y", xlab, ylab)
+    
+   # Plot ALL bootstrap dynamic multipliersof the response of y on a change in "shock"
+   #irf_plot(b.DMraw_@shock)
+   endloop
+   stop
+*/
+  
+
+
+
+#/*
+#-----------
+# EXAMPLE I
+#-----------
+open AWM.gdt --quiet
+set seed 1234
+
+series inc = ln(YER)
+series c = ln(PCR)
+series w = ln(WLN/PCD)
+list xlist = inc w
+list rxlist = const #time
+list Lall = c xlist rxlist
+smpl Lall --no-missing
+
+# ARDL parameters
+scalar pqmax = 4
+scalar condARDL = 1
+scalar infocrit = 1
+# Bootstrap and confidence interval parameters
+scalar horiz = 40
+scalar cilevel = 0.1
+scalar btype = 1
+scalar bootrep = 1000
+scalar shocktype = 1
+
+#------------------------
+# Set up the base bundle
+#------------------------
+bundle b = setARDL(c, xlist, rxlist, pqmax,
+  infocrit, condARDL, shocktype, btype, bootrep, \
+  horiz, cilevel)
+    
+#--------------------------------------------
+# Determine the optimal lag length (optional)
+#--------------------------------------------
+lagselect(&b)
+
+#---------------------------------------
+# Compute bootstrap dynamic multipliers 
+#---------------------------------------
+set stopwatch  
+runARDL(&b)
+printf "This took %.3f sec.\n", $stopwatch
+#print b
+#stop
+
+#---------------------------------------------
+# Compute bootstrap error-correction coeff. + 
+# long-run multipliers based on ARDL
+#---------------------------------------------
+LRbeta(&b)
+matrix LRinc = b.LRbeta_inc
+#print LRinc
+
+#-------------------------------------------------
+# Compute bootstrap error-correction term
+# y - bx = z based on bootstrap median value of b
+#-------------------------------------------------
+ECterm(&b)
+series ECM = b.ECM		# unrestricted constant
+series ECMrc = b.ECMrc	# restricted const.
+gnuplot ECM ECMrc --time-series --with-lines --output=display
+
+#------------------
+# Plot multipliers
+#------------------
+list Lplot = Lall - rxlist
+strings S = varnames(Lplot)
+S[1] = "Y"					# The endogenous is always named "Y"
+
+irf_plot(b.DM_inc, "Shock of inc on c", "Horizon", "Response")
+
+
+/*
+loop foreach i Lplot -q    
+    string ylab = ""
+    string xlab = "Horizon"
+    string shock = S[i]		# For the endogenous always use "y" irrespetive of the actual name!
+    # Plot the bootstrap median and confidence intervall of the response of y on a change in "shock"
+    irf_plot(b.DM_@shock, "Shock of @shock on c", xlab, ylab)
+    
+    # Plot ALL bootstrap dynamic multipliersof the response of y on a change in "shock"
+    #irf_plot(b.DMraw_@shock)
+endloop
+*/
+#-----------------------------------------------------
+# Plot multipliers with additional options for drawing
+# Save as *.pdf
+#-----------------------------------------------------
+scalar font = 26
+scalar lw = 2.0
+loop foreach i Lplot -q
+    string figpath = "@dotdir/irf_$i.pdf"
+    string title = "foo"
+    string xlab = "put a x label here"
+    string ylab = "put a y label here"
+    string shock = S[i]		# For the endogenous always use "y" irrespetive of the actual name!    
+    irf_plotadv(b.DM_@shock, figpath, title, xlab,ylab, \
+      font, poslegend, lw)
+endloop
+
+/*   ACTIVATE IF WISHED
+   #-------------------------------------------
+   # Plot coefficient by bootstrap replications
+   #-------------------------------------------
+   matrix mplot = b.BHAT_b
+   gnuplot 1 2 3 --matrix=mplot --time-series --with-lines --output=display
+
+
+   #----------------------------------------
+   # EXAMPLE II
+   # Plot dynamic multipliers for different
+   # arbitrary coefficients for illustration
+   #----------------------------------------
+   matrix AR = seq(-0.25,0.25,0.25)
+   matrix DL = {0.55, -0.22}
+   matrix DM = zeros(1+horiz,cols(AR))
+   loop i=1..cols(AR) -q
+   mat = {}
+   dmfilt(AR[i],DL, horiz, shocktype,&mat)
+   DM[,i] = mat
+   endloop
+   irf_plot(DM, "Shock of X on Y", "", "")
+*/
+
+
+
+/*	EXAMPLE II: Asymmetric ARDL
+   open AWM --quiet
+
+   series y = ln(YER)
+   dy = diff(y)
+   series dny = dy*(dy<=0)
+   series dpy = dy*(dy>0)
+   series Py = cum(dpy)
+   series Ny = cum(dny)
+   series c = ln(PCR)
+   series w = ln(WLN/PCD)
+
+   list ylist = c(-1 to -2)
+   list xlist = Py(0 to -2) Ny(0 to -2) #w(0 to -2)
+   list D = const time
+   scalar horiz = 20
+   scalar alpha = 0.10
+   scalar bootrep = 1000
+   scalar shocktype = 1
+
+   # Change in P+
+   string shock = "Py"
+   out = ADMB(c, ylist, xlist, \
+   null, D, shock, horiz, alpha, bootrep, shocktype)
+   DMp = out.DM_raw
+   irf_plot(out.DM)
+   # Change in P-
+   string shock = "Ny"
+   out = ADMB(c, ylist, xlist, \
+   null, D, shock, horiz, alpha, bootrep, shocktype)
+   DMn = out.DM_raw
+   irf_plot(out.DM)
+   stop
+   mdiff = DMp - (-DMn)
+   matrix crit = {alpha/2,0.5,(1-alpha/2)}
+   mres = quantile(mdiff', crit)'
+   gnuplot 1 2 3 --matrix=mres --with-lines --time-series \
+   --single-yaxis --output=display
+
+   matrix DMdiff =  abs(DMp) - abs(DMn)
+   matrix DMdiff = ( quantile(DMdiff',0.025) | ( quantile(DMdiff',0.05) | meanc(DMdiff') | quantile(DMdiff',0.95) ) | quantile(DMdiff',0.975) )'
+   matrix DMpos = quantile(DMp',0.5)'
+   matrix DMneg = quantile(DMn',0.5)'
+
+   matrix mplot = DMpos~DMneg~(abs(DMpos)-abs(DMneg)) ~ DMdiff[,1] ~ DMdiff[,5] ~ DMdiff[,2] ~ DMdiff[,4] 
+
+   sprintf fstore "%s/dynplot.pdf", $workdir
+   string cname="m+ m- D=|m(+)|-|m(-)| Diff(LB) Diff(UB) Diff(LB_) Diff(UB_)"
+   opt_keyon = 0
+   include "/home/at/ownCloud/gretl_script/gplotlibrary.inp"
+   DMplot(mplot,alpha,fstore,cname,opt_keyon)
+
+*/
