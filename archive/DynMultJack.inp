@@ -1,0 +1,53 @@
+#clear 
+set echo off
+set messages off
+
+open AWM --quiet
+
+series y = ln(YER)
+series c = ln(PCR)
+series w = ln(WLN/PCD)
+
+#------------------------------
+# JACK's APPROACH - LEVEL ARDL
+#------------------------------
+ols c const time y(0 to -2) w(0 to -2) c(-1 to -2)
+
+ycoef = $coeff[3:5]
+wcoef = $coeff[6:8]
+ARcoef = $coeff[9:10]
+
+scalar horizon = 20
+matrix shock = ones(horizon + 1, 2)
+shock[2:,1] = 0
+multy = filter(shock, ycoef, ARcoef)
+multw = filter(shock, wcoef, ARcoef)
+#print multy
+matrix crit = {0.05,0.5,0.95}
+sim_y = quantile(filter(1 | mnormal(horizon, 1000), ycoef, ARcoef)', crit)'
+gnuplot 1 2 3 --matrix=sim_y --with-lines --time-series --output=display
+cy = cum(sim_y[,2])
+stop
+sim_w = quantile(filter(1 | mnormal(horizon, 1000), wcoef, ARcoef)', crit)'
+gnuplot 1 2 3 --matrix=sim_w --with-lines --time-series --output=display
+
+#-----------------------
+# REPLICATE IN ECM FORM
+#-----------------------
+include dynMultipl.gfn
+list ylist = c
+list Dylist = diff(ylist)
+list xlist = y w
+list Dxlist = diff(xlist)
+ols Dylist const time ylist(-1) xlist(-1) Dylist(-1 to -1) Dxlist(0 to -1)
+
+matrix rho = $coeff[3]
+matrix by = $coeff[4]
+matrix bw = $coeff[5]
+matrix varphi = $coeff[6]
+matrix ycoff = $coeff[7:8]
+matrix wcoff = $coeff[9:10]
+
+matrix DMy = dynmulti(rho,by,varphi,ycoff,horizon)
+eval DMy ~ multy[1:20,2]
+print DMy

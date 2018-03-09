@@ -1,0 +1,218 @@
+#Investment Function for asymmetric model
+#see "script_investment_presentation.inp" for underlying estimations
+#set halt_on_error on
+nulldata 500 
+
+#############see output file: 1. "i_61_98.txt"###################
+/******************************************************************************
+ 	Preliminaries
+*******************************************************************************/
+scalar p = 4
+scalar q = 4 #Koeffizient zum Zeitpunkt t=0 wird nicht mitgezählt
+scalar l = maxc(p|q)
+scalar h = 60
+scalar k = 6 #Number of positive and negative beta coefficients!
+
+/******************************************************************************
+	Estimates
+*******************************************************************************/
+a = -0.0796095 #AR-coefficient of the level of the endogenous 
+matrix b = { 0.153332 ; 0 ; -0.0152546 ; 0.0533379 ; 0 ; 0 }
+b = b'
+matrix varphi = { 0 ; 0 ; 0 ; 0 } #lags of the endogenous
+varphi = varphi'
+matrix vpi = { 0.182234 ; 0 ; 0 ; -0.144884 ; 0 ; \  
+  0 ; 0 ; 0 ; 0 ; 0 ; \
+  0 ; 0 ; 0.0676436 ; 0 ; 0.113033 ; \
+  0 ; 0 ; 0 ; 0 ; 0 ; \
+  0 ; 0 ; 0 ; 0 ; 0 ; \
+  0 ; 0 ; 0 ; 0 ; 0.111707 }
+
+vpi = mshape(vpi, p, k)#Gretl reshapes in column-major order; Gauss in row-major \
+                       #order! Here u have to swap p against k!
+
+/******************************************************************************
+	Multiplier Effect
+*******************************************************************************
+
+	Format:
+	_________________________
+		{cmpsi} = mplier(alpha,beta,varphi,vpi,l,h)
+		
+	Input:
+	_________________________
+		alpha	----------------	scalar
+		beta	----------------	vector, 1xk
+		varphi	-------------	vector, 1x(l-1) #Unser varphi hat die Dimension 1xl - wieso??? 
+		vpi	----------------	matrix, lxk
+		l	-------------------	scalar, max(p,q)
+		h	-------------------	scalar, length of multiplier effect
+
+	Output:
+	_________________________
+		cmpsi	----------------	matrix, hxk, multiplier effect
+		
+	Written by	Minjoo Kim
+					Leeds University Business School
+					m.kim.lubs@googlemail.com
+					bnmk@leeds.ac.uk
+*******************************************************************************/	
+
+
+####Function####
+
+function matrix mplier(scalar a, matrix b, matrix varphi, matrix vpi, scalar l, scalar h, scalar k)   
+    vphi = zeros(1,l)					#See footnote 4 (p. 10) in the paper!
+    vphi[1] = 1 + a + varphi[1]
+    loop for (i=2; i<=l-1; i+=1)
+        vphi[i] = varphi[i] - varphi[i-1]
+    endloop
+    vphi[l] = -varphi[l-1]				#Why up to "l-1" and not "p-1" as in footnote 4???
+
+    mtheta = zeros(l+1,k)				#"l+1" wenn instantaneous effect (q=0) berücksichtigt
+	mtheta[1,] = vpi[1,]
+	mtheta[2,] = vpi[2,] - vpi[1,] + b
+    loop for (i=3; i<=l; i+=1)
+		mtheta[i,] = vpi[i,] - vpi[i-1,]
+ 	endloop
+ 	mtheta[l+1,] = -vpi[l,]				#Does it have to be "-vpi[l,]" or "-vpi[l-1,]" ?? --> See footnote 4 (p. 10) 
+                                        #Why up to "l-1" and not "q-1" as in footnote 4????
+	mpsi = zeros(h,k)
+	mpsi[1,] = mtheta[1,]
+	loop for (i=1; i<=l; i+=1)
+		mpsi[1+i,] = vphi[1:i]*mreverse(mpsi[1:i,]) + mtheta[i+1,]
+	endloop
+
+    #mpsi[1+1,] = vphi[1:1]*mreverse(mpsi[1:1,]) + mtheta[1+1,]
+    #mpsi[2+1,] = vphi[1:2]*mreverse(mpsi[1:2,]) + mtheta[2+1,]
+	
+    loop for (i=l+1; i<=h-1; i+=1)
+		mpsi[i+1,] = vphi*mreverse(mpsi[i-l+1:i,])
+	endloop
+  
+    matrix A = cum(mpsi)
+    return A
+end function
+
+matrix cmpsi = mplier(a, b, varphi, vpi, l, h, k)
+x = seq(1,h+1,1)'
+y = zeros(1,k)|cmpsi
+
+mod1_cf <- gnuplot 1 2 --matrix=cmpsi --with-lines --time-series --output=display \
+  { set title 'Dynamic multiplier cf'; }
+mod1_debtco <- gnuplot 3 4 --matrix=cmpsi --with-lines --time-series --output=display \
+      { set title 'Dynamic multiplier debt_costs'; }
+mod1_ma4_q2 <- gnuplot 5 6 --matrix=cmpsi --with-lines --time-series --output=display \
+      { set title 'Dynamic multiplier ma4_q2'; }
+mwrite(x~y, "mp_out_mod1.cvs")
+
+
+###############################################################################
+###############################################################################
+##################See output file "i_61_10_poil_dummy.txt"#####################
+/******************************************************************************
+ 	Preliminaries
+*******************************************************************************/
+scalar p = 4
+scalar q = 4 #Koeffizient zum Zeitpunkt t=0 wird nicht mitgezählt
+scalar l = maxc(p|q)
+scalar h = 60
+scalar k = 8 #Number of positive and negative beta coefficients!
+
+/******************************************************************************
+	Estimates
+*******************************************************************************/
+a = -0.137486 #AR-coefficient of the level of the endogenous 
+matrix b = { 0.0426443 ; 0.0508427 ; 0 ; 0.0455214 ; 0 ; 0 ; \
+  0.0225522 ; 0.0299833} #level coefficients of the exogenous
+b = b'
+matrix varphi = { 0 ; 0 ; 0 ; 0 } #lags of the endogenous
+varphi = varphi'
+matrix vpi = { 0 ; 0 ; 0 ; 0 ; 0 ; \
+  0 ; 0 ; 0 ; 0 ; 0 ; \
+  0 ; 0 ; 0 ; 0 ; 0.0808109 ; \
+  0.0577984 ; 0 ; 0 ; 0 ; 0 ; \
+  0 ; 0 ; 0 ; 0 ; 0 ; \
+  0 ; 0 ; 0 ; 0 ; 0 ; \
+  0.0335328 ; 0 ; 0 ; 0 ; 0; \
+  0 ; 0 ; 0 ; 0 ; 0 }
+
+vpi = mshape(vpi, p, k)#Gretl reshapes in column-major order; Gauss in row-major \
+                       #order! Here u have to swap p against k!
+
+/******************************************************************************
+	Multiplier Effect
+*******************************************************************************
+
+	Format:
+	_________________________
+		{cmpsi} = mplier(alpha,beta,varphi,vpi,l,h)
+		
+	Input:
+	_________________________
+		alpha	----------------	scalar
+		beta	----------------	vector, 1xk
+		varphi	-------------	vector, 1x(l-1) #Unser varphi hat die Dimension 1xl - wieso??? 
+		vpi	----------------	matrix, lxk
+		l	-------------------	scalar, max(p,q)
+		h	-------------------	scalar, length of multiplier effect
+
+	Output:
+	_________________________
+		cmpsi	----------------	matrix, hxk, multiplier effect
+		
+	Written by	Minjoo Kim
+					Leeds University Business School
+					m.kim.lubs@googlemail.com
+					bnmk@leeds.ac.uk
+*******************************************************************************/	
+
+
+####Function####
+
+function matrix mplier(scalar a, matrix b, matrix varphi, matrix vpi, scalar l, scalar h, scalar k)   
+    vphi = zeros(1,l)					#See footnote 4 (p. 10) in the paper!
+    vphi[1] = 1 + a + varphi[1]
+    loop for (i=2; i<=l-1; i+=1)
+        vphi[i] = varphi[i] - varphi[i-1]
+    endloop
+    vphi[l] = -varphi[l-1]				#Why up to "l-1" and not "p-1" as in footnote 4???
+
+    mtheta = zeros(l+1,k)				#"l+1" wenn instantaneous effect (q=0) berücksichtigt
+	mtheta[1,] = vpi[1,]
+	mtheta[2,] = vpi[2,] - vpi[1,] + b
+    loop for (i=3; i<=l; i+=1)
+		mtheta[i,] = vpi[i,] - vpi[i-1,]
+ 	endloop
+ 	mtheta[l+1,] = -vpi[l,]				#Does it have to be "-vpi[l,]" or "-vpi[l-1,]" ?? --> See footnote 4 (p. 10) 
+                                        #Why up to "l-1" and not "q-1" as in footnote 4????
+	mpsi = zeros(h,k)
+	mpsi[1,] = mtheta[1,]
+	loop for (i=1; i<=l; i+=1)
+		mpsi[1+i,] = vphi[1:i]*mreverse(mpsi[1:i,]) + mtheta[i+1,]
+	endloop
+
+    #mpsi[1+1,] = vphi[1:1]*mreverse(mpsi[1:1,]) + mtheta[1+1,]
+    #mpsi[2+1,] = vphi[1:2]*mreverse(mpsi[1:2,]) + mtheta[2+1,]
+	
+    loop for (i=l+1; i<=h-1; i+=1)
+		mpsi[i+1,] = vphi*mreverse(mpsi[i-l+1:i,])
+	endloop
+  
+    matrix A = cum(mpsi)
+    return A
+end function
+
+matrix cmpsi = mplier(a, b, varphi, vpi, l, h, k)
+x = seq(1,h+1,1)'
+y = zeros(1,k)|cmpsi
+
+mod2_cf <- gnuplot 1 2 --matrix=cmpsi --with-lines --time-series --output=display \
+  { set title 'Dynamic multiplier cf'; }
+mod2_debtco <- gnuplot 3 4 --matrix=cmpsi --with-lines --time-series --output=display \
+      { set title 'Dynamic multiplier debt_costs'; }
+mod2_ma4_q2 <- gnuplot 5 6 --matrix=cmpsi --with-lines --time-series --output=display \
+  { set title 'Dynamic multiplier ma4_q2'; }
+mod2_poil <- gnuplot 7 8 --matrix=cmpsi --with-lines --time-series --output=display \
+      { set title 'Dynamic multiplier poil'; }
+mwrite(x~y, "mp_out_mod2.cvs")

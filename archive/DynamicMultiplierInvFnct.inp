@@ -1,0 +1,103 @@
+#Investment Function for asymmetric model
+#set halt_on_error on
+#nulldata 500 
+/******************************************************************************
+ 	Preliminaries
+*******************************************************************************/
+scalar p = 4
+scalar q = 4 #Distributed lag Koeffizient zum Zeitpunkt t wird nicht mitgezählt
+scalar l = maxc(p|q)
+scalar h = 60
+scalar k = 9 #Number of positive and negative beta coefficients!
+
+/******************************************************************************
+	Estimates
+*******************************************************************************/
+a = -0.3289
+matrix b = { -0.009401 ; 0.02130 ; -0.05772 ; 0.05605 ; -0.1957 ; 0.1482 ; 0.4572 ; \
+2.835 ; -2.144 }
+b = b'
+matrix varphi = { 0 ; 0 ; 0 ; 0 }
+varphi = varphi'
+matrix vpi = { 0 ; 0 ; 0 ; 0 ; 0 ; \  
+  -0.09807 ; 0 ; 0 ; 0 ; 0 ; \
+  0 ; 0 ; 0.1697 ; 0 ; 0 ; \
+  0.1112 ; 0 ; 0 ; 0 ; 0 ; \
+  0 ; 0 ; 0 ; 0.3119 ; 0 ; \
+  0 ; 0 ; -0.2086 ; 0 ; 0 ;\
+  0 ; 0 ; 0 ; 0 ; 0 ; \
+  4.538 ; 0 ; 0 ; 0 ; 0; \
+  0 ; 0 ; 0 ; 0 ; 0 }
+
+vpi = mshape(vpi, p, k)#Gretl reshapes in column-major order; Gauss in row-major \
+                       #order! Here u have to swap p against k!
+
+/******************************************************************************
+	Multiplier Effect
+*******************************************************************************
+
+	Format:
+	_________________________
+		{cmpsi} = mplier(alpha,beta,varphi,vpi,l,h)
+		
+	Input:
+	_________________________
+		alpha	----------------	scalar
+		beta	----------------	vector, 1xk
+		varphi	-------------	vector, 1x(l-1) #Unser varphi hat die Dimension 1xl - wieso??? 
+		vpi	----------------	matrix, lxk
+		l	-------------------	scalar, max(p,q)
+		h	-------------------	scalar, length of multiplier effect
+
+	Output:
+	_________________________
+		cmpsi	----------------	matrix, hxk, multiplier effect
+		
+	Written by	Minjoo Kim
+					Leeds University Business School
+					m.kim.lubs@googlemail.com
+					bnmk@leeds.ac.uk
+*******************************************************************************/	
+
+
+####Function####
+
+function matrix mplier(scalar a, matrix b, matrix varphi, matrix vpi, scalar l, scalar h, scalar k)   
+    vphi = zeros(1,l)					#See footnote 4 (p. 10) in the paper!
+    vphi[1] = 1 + a + varphi[1]
+    loop for (i=2; i<=l-1; i+=1)
+        vphi[i] = varphi[i] - varphi[i-1]
+    endloop
+    vphi[l] = -varphi[l-1]				#Why up to "l-1" and not "p-1" as in footnote 4???
+
+    mtheta = zeros(l+1,k)				#"l+1" wenn instantaneous effect (q=0) berücksichtigt
+	mtheta[1,] = vpi[1,]
+	mtheta[2,] = vpi[2,] - vpi[1,] + b
+    loop for (i=3; i<=l; i+=1)
+		mtheta[i,] = vpi[i,] - vpi[i-1,]
+ 	endloop
+ 	mtheta[l+1,] = -vpi[l,]				#Does it have to be "-vpi[l,]" or "-vpi[l-1,]" ?? --> See footnote 4 (p. 10) 
+                                        #Why up to "l-1" and not "q-1" as in footnote 4????
+	mpsi = zeros(h,k)
+	mpsi[1,] = mtheta[1,]
+	loop for (i=1; i<=l; i+=1)
+		mpsi[1+i,] = vphi[1:i]*mreverse(mpsi[1:i,]) + mtheta[i+1,]
+	endloop
+
+    #mpsi[1+1,] = vphi[1:1]*mreverse(mpsi[1:1,]) + mtheta[1+1,]
+    #mpsi[2+1,] = vphi[1:2]*mreverse(mpsi[1:2,]) + mtheta[2+1,]
+	
+    loop for (i=l+1; i<=h-1; i+=1)
+		mpsi[i+1,] = vphi*mreverse(mpsi[i-l+1:i,])
+	endloop
+  
+    matrix A = cum(mpsi)
+    gnuplot 9 --matrix=A --with-lines --time-series --output=display
+    return A
+end function
+
+matrix cmpsi = mplier(a, b, varphi, vpi, l, h, k)
+x = seq(1,h+1,1)'
+y = zeros(1,k)|cmpsi
+mwrite(x~y, "mp_out.cvs")
+
