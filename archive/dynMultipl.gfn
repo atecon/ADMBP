@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gretl-functions>
+<gretl-function-package name="dynMultipl" ID="1296398180" needs-time-series-data="true" minver="1.9.90">
+<author>Artur Tarassow</author>
+<version>0.91</version>
+<date>2014-11-07</date>
+<description>Dynamic Multiplier computation for ARDL models</description>
+<help>
+#############################################################################
+#                   Dynamic Multiplier Effect                               #
+#############################################################################
+ 
+# This function computes the Dynamic Multipliers of an ARDL model.
+# The package consists of two functions:
+#
+#	1. &quot;OLS&quot;
+#	Format:
+#	{ RET } = OLS(DET, ylist, xlist, Dxlist, p, q, alpha
+#
+#	Input:
+#			DET		-- list, List of deterministics (const+trend+dummies)
+#			ylist 	-- list, List of endogeneous (in levels)
+#			xlist 	-- list, List of exogeneous (in levels)
+# 			Dxlist 	-- list, List of exogeneous (1st differences)
+#			p		-- scalar, Lag length of endogenous Dylist
+# 			q 		-- scalar, Lag length of exogenous Dxlist (for all the same)
+#			alpha 	-- scalar, Significance level for omit command, if alpha==0 no G-2-S model reduction,
+#								The omission only refers to the first difference variables but NOT the levels and deterministics.
+#
+#	Output:
+#           rho     --  matrix, 1x1, error-correction coefficient
+#   		beta	--	matrix, 1x1, Coefficient of lagged level variable k
+#   		varphi	--	vector, (p-1), Coefficients of lagged dependent (1st differences)
+#		    vpi	    --	matrix, (q-1)x1, Coefficients of contemporaneous and lagged 1st diff. of selected exogeneous
+# 
+#
+#	2. &quot;dynmulti&quot;
+#	Format:
+#   { mplier } = dynmulti(rho, beta, varphi, vpi, horiz)
+# 	
+#	Input:
+#           rho     --  matrix, 1x1, error-correction coefficient
+#   		beta	--	matrix, 1x1, Coefficient of lagged level variable k
+#   		varphi	--	vector, (p-1), Coefficients of lagged dependent (1st differences)
+#		    vpi	    --	matrix, (q-1)x1, Coefficients of contemporaneous and lagged 1st diff. of selected exogeneous
+#   		h       --	scalar, length of multiplier effect
+
+#	Output:
+#           mplier	--	matrix, hx1, multiplier effect
+
+		
+# This gretl code was written by:
+#           Artur Tarassow
+#           University of Hamburg, GER
+#           artur.tarassow@wiso.uni-hamburg.de
+#           artur.tarassow@googlemail.com
+
+#   The original GAUSS code was written by:
+#           Minjoo Kim
+#         	Leeds University Business School
+#			m.kim.lubs@googlemail.com
+#   		bnmk@leeds.ac.uk
+
+# CHANGELOG:
+# ----------
+# 0.91 (Nov. 2014)
+#	- Allow for differences in lag-order p and q, respectively.
+#	- Minor changes.
+#
+#
+#############################################################
+</help>
+<gretl-function name="dynmulti" type="matrix">
+ <params count="5">
+  <param name="rho" type="matrix">
+<description>Error-corr. coeff</description>
+  </param>
+  <param name="beta" type="matrix">
+<description>Lagged level parameter (1x1)</description>
+  </param>
+  <param name="varphi" type="matrix">
+<description>Coeff. of lagged dependent (p-1x1)</description>
+  </param>
+  <param name="vpi" type="matrix">
+<description>Coeff. of contemp. and lagged 1st diff. of independent vars (qx1)</description>
+  </param>
+  <param name="horiz" type="int"/>
+ </params>
+<code>scalar p = rows(varphi)				# p-order
+scalar q = rows(vpi)				# q-order
+scalar l = maxc(p|q)
+matrix vphi = zeros(1,l)
+vphi[1] = 1 + rho + varphi[1]
+loop i=2..(l-1) -q
+  vphi[i] = varphi[i] - varphi[i-1]
+endloop
+vphi[l] = -varphi[l-1]
+matrix mtheta = zeros(l+1,1)				#&quot;l+1&quot; if d_x(0 to -q) (instantaneous effect) is considered
+mtheta[1,] = vpi[1,]
+mtheta[2,] = vpi[2,] - vpi[1,] + beta'
+loop i=3..q -q
+  mtheta[i,] = vpi[i,] - vpi[i-1,]
+endloop
+if q==l				# else mtheta[(l+1),] = 0
+  mtheta[(l+1),] = -vpi[l,]
+endif
+matrix mpsi = zeros(horiz,1)
+mpsi[1,] = mtheta[1,]
+loop i=1..l -q
+  mpsi[1+i,] = vphi[1:i]*mreverse(mpsi[1:i,]) + mtheta[i+1,]
+endloop
+loop i=(l+1)..(horiz-1) -q
+  mpsi[i+1,] = vphi*mreverse(mpsi[(i-l+1):i,])
+endloop
+matrix mplier = cum(mpsi)
+return mplier
+</code>
+</gretl-function>
+<gretl-function name="OLS" type="bundle">
+ <params count="7">
+  <param name="DET" type="list">
+<description>List of deterministics (const+trend+dummies)</description>
+  </param>
+  <param name="ylist" type="list">
+<description>Level of endogeneous</description>
+  </param>
+  <param name="xlist" type="list">
+<description>Level of exogenous</description>
+  </param>
+  <param name="Dxlist" type="list">
+<description>1st diff of exogenous</description>
+  </param>
+  <param name="p" type="int">
+<description>Lag length of endogenous Dylist</description>
+  </param>
+  <param name="q" type="int">
+<description>Lag length of ALL exogenous Dxlist</description>
+  </param>
+  <param name="alpha" type="scalar">
+<description>Significance level for omit; if alpha==0 no G-2-S model reduction</description>
+  </param>
+ </params>
+<code>bundle RET = null
+y = diff(ylist)
+list Dylist = diff(ylist)
+# Initial OLS
+if p==0
+  if nelem(xlist)==0
+    printf &quot;Not sufficient variables included. Have you added the I(1)s?\n&quot;
+  else										# ESTIMATE Error-Correction-Model
+    ols y DET ylist(-1) xlist(-1) DET --quiet
+  endif
+else
+  if nelem(xlist)==0		# Estimate ARDL with I(0)s only
+    ols y DET Dylist(-1 to -p) Dxlist(0 to -q) --quiet
+  else										# ESTIMATE Error-Correction-Model
+    ols y DET ylist(-1) xlist(-1) Dylist(-1 to -p) Dxlist(0 to -q) --quiet
+  endif
+endif
+matrix m1 = $xlist
+if alpha &gt; 0
+  # List of vars for GTS reduction
+  list olist = time
+  olist += lags(p,Dylist)
+  olist += Dxlist lags(p,Dxlist)
+  omit olist --auto=alpha --silent
+endif
+matrix m2 = $xlist
+matrix desel = sumc(m1 .= m2')'						# vector of omitted variables (Thanks to Riccardo's for this suggestion)
+matrix behat = zeros(rows(desel),1)
+matrix beta = $coeff
+scalar count = 1
+loop i=1..rows(desel) -q
+  if desel[i] == 1								# if variable at position i was not ommitted! #
+    behat[i] = beta[count]
+    count = count + 1
+  endif
+endloop
+scalar n_det = nelem(DET)							# number of deterministics regs
+if nelem(xlist)==0
+  scalar ivarphi = n_det+1						# init. position of lag. endog. 1st diff
+  scalar evarphi = (ivarphi+p-1)
+  matrix rho = zeros(1,1)
+  matrix b = zeros(nelem(Dxlist),1)					# LR-betas are simply zero of no I(1) vars are added
+  matrix varphi = behat[ivarphi:evarphi]			# Coeff. of lagged dependent (p-1x1)
+  matrix vpi = behat[(evarphi+1):]					# &quot;Coeff. of contemp. and lagged 1st diff. of independent vars (kqx1)&quot;
+else
+  scalar ivarphi = n_det+2+nelem(xlist)					# init. position of lag. endog. 1st diff
+  scalar evarphi = (ivarphi+p-1)
+  matrix rho = beta[1+n_det]							# error-correction coefficient
+  matrix b = beta[(n_det+2):(n_det+1+nelem(xlist))]
+  matrix varphi = behat[ivarphi:evarphi]			# Coeff. of lagged dependent (p-1x1)
+  matrix vpi = behat[(evarphi+1):]					# &quot;Coeff. of contemp. and lagged 1st diff. of independent vars (kqx1)&quot;
+endif
+vpi = mshape(vpi,(q+1),nelem(Dxlist))			# (p+1) as we allow for contemporaneous effect
+varn = strsub(varname(Dxlist),&quot;,&quot;,&quot; &quot;)
+colnames(vpi,varn)
+RET.rho = rho							# error-correction coefficient rho
+RET.b = b								# Coeffs of lagged xlist levels
+RET.varphi = varphi						# Coeff. of lagged Dylist (p-1x1)
+RET.vpi = vpi							# &quot;Coeff. of contemp. and lagged 1st diff. of independent vars (qxk)
+return RET
+</code>
+</gretl-function>
+<sample-script>
+clear
+set echo off
+set messages off
+include dynMultipl.gfn
+
+#********************************************
+# EXAMPLE I: ECM with G2S model reduction	*
+#********************************************
+open denmark.gdt --quiet
+scalar h = 40
+scalar p = 8
+scalar q = 8
+scalar alpha = 0.05				# if alpha=0 no G2S model reduction
+series D801 = (obs=1980:1)
+list DET = const D801			# add a dummy for illustration
+list ylist = LRM
+list Dylist = diff(ylist)
+list xlist = LRY IBO
+list Dxlist = diff(xlist)
+#list xlist = null				# IF activated a stationary ARDL is estimated
+
+#	Run the regression via fnct OLS which calls dynmulti	#
+BOUT = OLS(DET,ylist,xlist,Dxlist,p,q,alpha)
+
+# Calculate dynamic multipliers for each exogeneous I(1) regressor 
+matrix DM = zeros(h,nelem(Dxlist))				# Effect of LRY ~ IBO on LRM
+loop i=1..nelem(Dxlist) -q
+    DM[,i] = dynmulti(BOUT.rho, BOUT.b[i], BOUT.varphi, BOUT.vpi[,i], h)
+endloop
+string vname = strsub(varname(Dxlist),&quot;,&quot;,&quot; &quot;)
+colnames(DM,&quot;@vname&quot;)
+gnuplot 1 2 --with-lines --time-series --matrix=DM --output=display
+
+
+
+#************************************************************************************************************
+# EXAMPLE II: REPLICATES OKUN'S LAW ESTIMATES FOR THE US (Symmetric long-run, asymmetric short-run dynamics)*
+#************************************************************************************************************
+matrix a = -0.06
+matrix b = { -0.55 }#; -1.62}
+scalar k = 2						# Number of I(0) regressors
+matrix varphi = ( -0.19 ~ zeros(1,9) ~ 0.11 ~ zeros(1,6) )'
+matrix vpi = ( -8.42 ~ 0 ~ -4.82 ~ zeros(1,15) ~ -8.24 ~ zeros(1,3) ~ -9.74 ~ zeros(1,13) )'
+vpi = mshape(vpi,18,k)
+
+#Effects of X+ ~ X- on Y
+matrix DM = zeros(h,k)
+loop i=1..k -q
+    DM[,i] = dynmulti(a, b[1], varphi, vpi[,i], h)
+endloop
+DM[,2] = -1.*DM[,2]
+gnuplot 1 2 --with-lines --time-series --matrix=DM --output=display --single-yaxis
+</sample-script>
+</gretl-function-package>
+</gretl-functions>
+
