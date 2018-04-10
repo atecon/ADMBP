@@ -18,9 +18,9 @@ set verbose off
    (D) The error-correction term as well as error-correction
    coefficient (rho) of an underlying ECM using the bootstrap median
    cointegration coefficients.
-   (E) 4 different bootstrap types are available: 1) parametric,
+   (E) 5 different bootstrap types are available: 1) parametric,
    2) non-parametric, 3) wild (based on uniform distrib.),
-   4) wild (Rademacher distrib.).
+   4) wild (Rademacher distrib.), 5) block-bootsrap 
 
    +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
    *** NOTE: This package replaces the less sophisticated package 	   ***
@@ -342,14 +342,12 @@ function void drawE (bundle *b, series *e)
         series e = resample(uhat) * Rad
     elif b.btype==4						# block bootstrap
         series e = SB(b.muhat)
-        print e -o
-        stop
     endif
 end function
 
 # help function: block bootstrap
-function matrix SB (matrix x)
-    #matrix x "Data to be resampled"    
+function series SB (matrix x)
+    #matrix x "Data to be resampled"
     # FIXME: should x be the de-meaned residuals??
         
     scalar n = rows(x)
@@ -368,7 +366,8 @@ function matrix SB (matrix x)
     s -= replace(r, sub[,1], sub[,2])
     # roll over if necessary
     s = ((s-1)%n) + 1
-    return x[s,]
+    series xx = x[s,]
+    return xx
 end function
 
 
@@ -766,7 +765,7 @@ function void irf_plotadv(matrix mplot,
 end function
 
 
-#/*
+/*
    #--------------------------------------------------
    # EXAMPLE 0 Replicate Oleh's lagreg() ARDl example
    #--------------------------------------------------
@@ -838,11 +837,11 @@ end function
    string shock = S[i]		# For the endogenous always use "y" irrespetive of the actual name!
    # Plot the bootstrap median and confidence intervall of the response of y on a change in "shock"
    irf_plot(b.DM_@shock, "Shock of @shock on Y", xlab, ylab)
-    
+    stop
    # Plot ALL bootstrap dynamic multipliersof the response of y on a change in "shock"
    #irf_plot(b.DMraw_@shock)
    endloop
-   stop
+   
 */
   
 
