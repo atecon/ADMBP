@@ -847,7 +847,7 @@ end function
 
 
 
-#/*
+/*
 #-----------
 # EXAMPLE I
 #-----------
@@ -933,6 +933,7 @@ loop foreach i Lplot -q
     #irf_plot(b.DMraw_@shock)
 endloop
 */
+/*
 #-----------------------------------------------------
 # Plot multipliers with additional options for drawing
 # Save as *.pdf
@@ -948,7 +949,7 @@ loop foreach i Lplot -q
     irf_plotadv(b.DM_@shock, figpath, title, xlab,ylab, \
       font, poslegend, lw)
 endloop
-
+*/
 /*   ACTIVATE IF WISHED
    #-------------------------------------------
    # Plot coefficient by bootstrap replications
