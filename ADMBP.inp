@@ -328,7 +328,7 @@ end function
 # helper function
 function void drawE (bundle *b, series *e)
     series uhat = b.muhat
-    uhat = uhat-mean(uhat)
+    uhat = uhat-mean(uhat)	# FIXME: is re-centering needed here??
 
     if b.btype==0
         series e = normal(0,sd(uhat))	# parametric bootstrap
@@ -340,9 +340,35 @@ function void drawE (bundle *b, series *e)
         series Rad = uniform(0,1)
         Rad = -1*(Rad<=0.5) + (Rad>0.5)
         series e = resample(uhat) * Rad
+    elif b.btype==4						# block bootstrap
+        series e = SB(b.muhat)
     endif
 end function
+
+# help function: block bootstrap
+function matrix SB (matrix x)
+    #matrix x "Data to be resampled",
+    #int b[0::] "Block size")
     
+    scalar n = rows(x)
+    if n == 0
+        funcerr "data input error, check data"
+    endif
+    b = round(1.75*(n^(1/3)))	# mean block size to rule-of-thumb value
+    p = 1/b   					# probability of a new run
+    s = seq(1,n)'              	# sequence
+    u = 1 | (muniform(n-1,1) .< p) # run starts
+    r = cum(u)                     # id of each run
+    nr = r[n]                      # how many runs ?
+    sub = selifr(r ~ s, u)         # starting row for each run
+    sub[,2] -= mrandgen(i, 1, n, nr, 1) # adjust starting points
+    # --- create mini-trends ----------------
+    s -= replace(r, sub[,1], sub[,2])
+    # roll over if necessary
+    s = ((s-1)%n) + 1
+    return x[s,]
+end function
+
 
 # helper function
 function void bootARDL (bundle *b)
