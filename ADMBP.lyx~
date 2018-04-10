@@ -771,7 +771,7 @@ v_{t}^{\ast} & =\begin{cases}
 \end_layout
 
 \begin_layout Standard
-The stationary block-bootstrap was proposed by Politis/Romano (1994).
+The stationary block-bootstrap was proposed by Politis/Romano (1994)
 \begin_inset Foot
 status collapsed
 
@@ -790,6 +790,7 @@ Journal of the American Statistical Association
 
 \end_inset
 
+.
  This bootstrap attempts to mimic time-dependency in the time-series.
  The mean block-size is determined by 
 \begin_inset Formula $b=round(1.75\times T^{1/3})$
