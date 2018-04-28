@@ -735,11 +735,11 @@ function void irf_plotadv(matrix mplot,
       scalar lw "linewidth")      
     # Inspired by http://www.gnuplotting.org/attractive-plots/
     sprintf LW "%.2f", lw
-    sprintf FS "%.1f", fontsize
+    string fontopt = sprintf("--font=\"serif, %d\"", fontsize)
     sprintf strLEG "set nokey"
 
     plot mplot
-        options with-lines time-series single-yaxis font="serif,@FS"
+        options with-lines time-series single-yaxis @fontopt
         #printf "set term pdfcairo font 'Helvetica,%d' lw %.2f", fontsize, lw
         literal @strLEG				# Legend options 
         literal set title "@title"

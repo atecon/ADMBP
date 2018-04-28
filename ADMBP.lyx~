@@ -92,7 +92,7 @@ target "https://sites.google.com/site/arturtarassow/"
 \end_layout
 
 \begin_layout Date
-Version 0.9
+Version 0.96
 \end_layout
 
 \begin_layout Standard
@@ -120,6 +120,16 @@ status open
 Changelog
 \end_layout
 
+\begin_layout Itemize
+Version 0.96 (April, 2018)
+\end_layout
+
+\begin_deeper
+\begin_layout Itemize
+fix bug with font size in irf_plotadv() function
+\end_layout
+
+\end_deeper
 \begin_layout Itemize
 Version 0.95 (April, 2018)
 \end_layout
@@ -169,7 +179,7 @@ ADMBP
 \end_layout
 
 \begin_layout Standard
-This package comprises the following features:
+This function package comprises the following features:
 \end_layout
 
 \begin_layout Itemize
@@ -200,8 +210,8 @@ Inference on long-run multipliers using either the bootstrap method or Bewley's
 
 \begin_layout Standard
 In case you want to test for a long-run cointegrating relationship between
- the series of interest, I recommend to use the gretl user-written package
- 
+ the series of interest, I recommend to use the gretl user-written function
+ package 
 \family typewriter
 cointARDL (LINK: 
 \begin_inset CommandInset href
@@ -223,8 +233,8 @@ package can also be seen as a supplement to this help file.
 \end_layout
 
 \begin_layout Standard
-Another user-written package for gretl comprising facilities to compute
- dynamic multipliers was recently published by Oleh Komashko.
+Another user-written function package for gretl comprising facilities to
+ compute dynamic multipliers was recently published by Oleh Komashko.
  His 
 \family typewriter
 lagreg
