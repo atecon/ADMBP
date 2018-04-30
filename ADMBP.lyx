@@ -153,6 +153,10 @@ Initial version
 \end_inset
 
 
+\begin_inset Newpage newpage
+\end_inset
+
+
 \end_layout
 
 \begin_layout Standard
@@ -1773,6 +1777,25 @@ This took 0.643 sec.
 \end_inset
 
 Note that all of the bootstrap models were dynamically stable.
+ Remember that 
+\family typewriter
+runARDL()
+\family default
+ can only be called one time after 
+\family typewriter
+setARDL()
+\family default
+ as there is no reason to call it a second time, once all basic information
+ are computed.
+ Calling 
+\family typewriter
+runARDL()
+\family default
+ again, requires to call 
+\family typewriter
+setARDL()
+\family default
+ before.
 \end_layout
 
 \begin_layout Subsection
@@ -2411,10 +2434,10 @@ int shocktype[0:1:]
 \begin_layout Enumerate
 
 \family typewriter
-int btype[0:3:1]
+int btype[0:4:1]
 \family default
 : Select bootstrap type, 0=parametric, 1=non-parametric, 2=wild (uniform),
- 3=wild (Rademacher), default 1.
+ 3=wild (Rademacher), 4=stationary block, default 1.
 \end_layout
 
 \begin_layout Enumerate
@@ -2887,6 +2910,7 @@ References
 \end_layout
 
 \begin_layout Standard
+\noindent
 Bewley, R.A.
  (1979): The direction estimation of the equilibrium response in a linear
  dynamic model, 
@@ -2897,6 +2921,7 @@ Economic Letters
 \end_layout
 
 \begin_layout Standard
+\noindent
 Hassler, U.
  and J.
  Wolters (2006): Autoregressive Distributed Lag Models and Cointegration,
@@ -2908,6 +2933,7 @@ Allgemeines Statistisches Archiv
 \end_layout
 
 \begin_layout Standard
+\noindent
 Pesaran M.H.
  and Y.
  Shin (1999): An autoregressive distributed lag modelling approach to cointegrat
