@@ -217,7 +217,7 @@ function bundle setARDL( const series Y "Level of endogenous",
       bool verb[1] "Print details 0:No, 1:Yes",
       scalar failstop[0.01:0.9:0.2] "Fraction of failed bootstrap iterations before full stop")
 
-    bundle b
+    bundle b    
 
     scalar b.addDET = 0
     if strstr(varname(rxlist), "const")!=""
@@ -250,24 +250,26 @@ function bundle setARDL( const series Y "Level of endogenous",
     b.bootrep = bootrep
     b.horiz = horiz
     b.shocktype = shocktype
-    b.failstop = failstop    
+    b.failstop = failstop
     if verb==1
         string b.optsil = ""
     else
         string b.optsil = "--quiet"
-    endif   
+    endif
     return b
 end function
     
 # public function
 function void runARDL (bundle *b)
-
+    if inbundle(b, "finset")
+        printf "\n"
+        funcerr "Note: Before calling runARDL() a 2nd time, call setARDL() 1st again. ***"
+    endif
     series Y = b.my
     list xlist = b.mx
     list rxlist = b.mrx
     lags Y xlist
     quiet = b.optsil
-        
     if b.optsil==""
         ARDLinfo(&b)
     endif
@@ -278,7 +280,6 @@ function void runARDL (bundle *b)
     if b.addDET==1
         list lDET += const
     endif
-
     ols Y lDET Y(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist @quiet
     # Evaluate stability first
     scalar b.ay = b.addDET + 1
@@ -295,18 +296,15 @@ function void runARDL (bundle *b)
     if b.cancel==0
         scalar b.ax = b.ey+1
         scalar b.ex = b.ax + b.nx*(b.condARDL + b.pq)-1
-    
         # Zcoef: Const.~X1(0 to -pq)~...~Xk(0 to -pq)~rxlist (incl. time, dummies etc.)
         if b.addDET>0
             b.Zcoef = $coeff[1:(b.ay-1)] | $coeff[b.ey+1:]	# Deterministics + DL coeff needed for ysim()
         else
             b.Zcoef = $coeff[b.ey+1:]
-        endif    
+        endif
         b.muhat = {$uhat}
-
         # Run dmARDL()
         bootARDL(&b)
-    
         # Compute median and confidence intervals of dynamic multipliers for each variable y and xlist.
         # DM_@vname: lower bound ~ median ~ upper bound
         matrix crit = {b.cilevel/2,0.5,(1-b.cilevel/2)}
@@ -314,7 +312,6 @@ function void runARDL (bundle *b)
             string vname = b.Sall[$i]
             b.DM_@vname = quantile(b.DMraw_@vname', crit)'
         endloop
-        
     else
         # unstable case
         loop i=1..(1+b.nx) -q
@@ -322,7 +319,7 @@ function void runARDL (bundle *b)
             matrix b.DM_@vname = NA
         endloop
     endif
-    
+    b.finset = 1
 end function
    
 # helper function
