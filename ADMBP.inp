@@ -537,31 +537,29 @@ end function
 function void ECMinfo (bundle *b)
     printf "\n******************************************\n"
     printf "*** Error-correction model bootstrap   ***\n"
-    printf "*** coefficient estimates	       ***\n"
+    printf "*** coefficient estimates           ***\n"
     printf "******************************************\n"
-    
     printf "\nError correction coeff. rho (bootstrap values)\n"
     printf "----------------------------------------------\n"
-    printf "\tMedian \tMedian \t S.D.\n"
-    printf "rho %10.4f %8.4f %8.4f \n", b.RHO[1], b.RHO[2], b.RHO[3]
-
+    printf "                 Mean   Median     S.D.\n"
+    printf "       rho %10.4f %8.4f %8.4f \n", b.RHO[1], b.RHO[2], b.RHO[3]
     printf "\nLong-run multipliers (bootstrap values)\n"
     printf "----------------------------------------------\n"
-    printf "\tMean \tMedian \t S.D.\n"
+    printf "                 Mean   Median     S.D.\n"
     loop i=1..(1+b.nx) -q
-        string vname = b.Sall[$i]    
-        printf "%s %10.4f %8.4f %8.4f\n", b.Sall[$i], b.LRbeta_@vname[1], b.LRbeta_@vname[2], b.LRbeta_@vname[3]
+        string vname = b.Sall[$i]
+        printf "%10s %10.4f %8.4f %8.4f\n", b.Sall[$i],
+    b.LRbeta_@vname[1], b.LRbeta_@vname[2], b.LRbeta_@vname[3]
     endloop
-    
     printf "\nBewley's long-run multipliers (2SLS point estimates)\n"
     printf "----------------------------------------------\n"
-    printf "\tCoeff. \tS.D. \n"
+    printf "               Coeff.     S.D. \n"
     loop i=2..(1+b.nx) -q
-        string vname = b.Sall[$i]    
-        printf "%s %10.4f %8.4f\n", b.Sall[$i], b.LRBew[i-1], b.LRBewSE[i-1]
+        string vname = b.Sall[$i]
+        printf "%10s %10.4f %8.4f\n", b.Sall[$i], b.LRBew[i-1], b.LRBewSE[i-1]
     endloop
     printf "******************************************\n"
-end function
+end function 
 
 # public function
 function void LRbeta(bundle *b)
@@ -844,7 +842,7 @@ end function
 
 
 
-/*
+#/*
 #-----------
 # EXAMPLE I
 #-----------
@@ -885,11 +883,8 @@ lagselect(&b)
 #---------------------------------------
 # Compute bootstrap dynamic multipliers 
 #---------------------------------------
-set stopwatch  
 runARDL(&b)
-printf "This took %.3f sec.\n", $stopwatch
 #print b
-#stop
 
 #---------------------------------------------
 # Compute bootstrap error-correction coeff. + 
