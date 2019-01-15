@@ -1,21 +1,5 @@
-# Create a new repository
-git clone git@scm.darnold.org:atecon/Gnuplot_Lib.git
-cd Gnuplot_Lib
-touch README.md
-git add README.md
-git commit -m "add README"
-git push -u origin master
+# ARDL Dynamic Multiplier Bootstrap Package
 
-# Existing folder
-cd existing_folder
-git init
-git remote add origin git@scm.darnold.org:atecon/Gnuplot_Lib.git
-git add .
-git commit
-git push -u origin master
+**Gretl** package for computing bootstrap-based dynamic multipliers.
 
-# Existing Git repository
-cd existing_repo
-git remote add origin git@scm.darnold.org:atecon/Gnuplot_Lib.git
-git push -u origin --all
-git push -u origin --tags
+**Gretl** package URL: http://ricardo.ecn.wfu.edu/gretl/cgi-bin/current_fnfiles/ADMBP.zip
