@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gretl-functions>
-<gretl-function-package name="ADMBP" needs-time-series-data="true" minver="2017a" lives-in-subdir="true">
+<gretl-function-package name="ADMBP" needs-time-series-data="true" minver="2020a" lives-in-subdir="true">
 <author email="atecon@posteo.de">Artur Tarassow</author>
-<version>0.97</version>
+<version>0.99</version>
 <date>2021-03-31</date>
 <description>ARDL Dynamic Multiplier Bootstrap Package</description>
 <tags>C22 C20</tags>
@@ -723,16 +723,19 @@ S[1] = &quot;Y&quot;                  # The endogenous is always named &quot;Y&q
 loop foreach i Lplot -q
     string ylab = &quot;&quot;
     string xlab = &quot;Horizon&quot;
-    string shock = S[i]		# For the endogenous always use &quot;y&quot; irrespetive of the actual name!
-    # Plot the bootstrap median and confidence intervall of the response of y on a change in &quot;shock&quot;
+    # For the endogenous always use &quot;y&quot; irrespetive of the actual name!
+    string shock = S[i]
+    # Plot the bootstrap median and confidence intervall of
+    # the response of y on a change in &quot;shock&quot;
     irf_plot(b.DM_@shock, &quot;Shock of @shock on c&quot;, xlab, ylab)
 
-    # Plot ALL bootstrap dynamic multipliersof the response of y on a change in &quot;shock&quot;
+    # Plot ALL bootstrap dynamic multipliersof the response of
+    # y on a change in &quot;shock&quot;
     #irf_plot(b.DMraw_@shock)
 endloop
 */
 
-#/* Activate if wished
+/* Activate if wished
 #-----------------------------------------------------
 # Plot multipliers with additional options for drawing
 # Save as *.pdf
@@ -747,11 +750,12 @@ loop foreach i Lplot -q
     string title = &quot;foo&quot;
     string xlab = &quot;put a x label here&quot;
     string ylab = &quot;put a y label here&quot;
-    string shock = S[i]		# For the endogenous always use &quot;y&quot; irrespetive of the actual name!
+    # For the endogenous always use &quot;y&quot; irrespetive of the actual name!
+    string shock = S[i]
     irf_plotadv(b.DM_@shock, figpath, title, xlab,ylab, \
       font, lw)
 endloop
-#*/
+*/
 </sample-script>
 </gretl-function-package>
 </gretl-functions>
