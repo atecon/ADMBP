@@ -133,7 +133,23 @@ Version 0.99 (March, 2021)
 
 \begin_deeper
 \begin_layout Itemize
-fix bug with font size in irf_plotadv() function
+fix bug with the 'const' modifier
+\end_layout
+
+\begin_layout Itemize
+enforce decimal points for plotting
+\end_layout
+
+\begin_layout Itemize
+replace deprecated sprintf command by function
+\end_layout
+
+\begin_layout Itemize
+make use of r/cnameset()
+\end_layout
+
+\begin_layout Itemize
+minimum gretl version required is 2020a
 \end_layout
 
 \end_deeper
