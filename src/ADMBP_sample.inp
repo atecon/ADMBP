@@ -1,0 +1,102 @@
+clear
+set verbose off
+set seed 1234
+
+include ADMBP.gfn
+
+open AWM.gdt --quiet
+
+# Construct some series and lists
+series inc = ln(YER)
+series c = ln(PCR)
+series w = ln(WLN/PCD)
+list xlist = inc w
+list rxlist = const time
+list Lall = c xlist rxlist
+
+smpl Lall --no-missing # make sure you don't have any missings
+
+# ARDL parameters
+scalar pqmax = 4
+scalar condARDL = 1
+scalar infocrit = 1
+# Bootstrap and confidence interval parameters
+scalar horiz = 40
+scalar cilevel = 0.1
+scalar btype = 4
+scalar bootrep = 1000
+scalar shocktype = 1
+
+#------------------------
+# Set up the base bundle
+#------------------------
+bundle b = setARDL(c, xlist, rxlist, pqmax, infocrit,\
+    condARDL, shocktype, btype, bootrep, horiz, cilevel)
+
+# Determine the optimal lag length (optional)
+lagselect(&b)
+
+# Compute bootstrap dynamic multipliers
+runARDL(&b)
+print b
+
+# Compute bootstrap error-correction coeff. +
+# long-run multipliers based on ARDL
+LRbeta(&b)
+matrix LRinc = b.LRbeta_inc
+print LRinc
+
+
+# Compute bootstrap error-correction term
+# y - bx = z based on bootstrap median value of b
+ECterm(&b)
+series ECM = b.ECM		# unrestricted constant
+series ECMrc = b.ECMrc	# restricted const.
+gnuplot ECM ECMrc --time-series --with-lines --output=display
+
+
+# Plot multipliers
+list Lplot = Lall - rxlist
+
+irf_plot(b.DM_inc, "Shock of inc on c", "Horizon", "Response")
+
+/* Activate if wished
+strings S = varnames(Lplot)
+S[1] = "Y"                  # The endogenous is always named "Y"
+
+loop foreach i Lplot -q
+    string ylab = ""
+    string xlab = "Horizon"
+    # For the endogenous always use "y" irrespetive of the actual name!
+    string shock = S[i]
+    # Plot the bootstrap median and confidence intervall of
+    # the response of y on a change in "shock"
+    irf_plot(b.DM_@shock, "Shock of @shock on c", xlab, ylab)
+
+    # Plot ALL bootstrap dynamic multipliersof the response of
+    # y on a change in "shock"
+    #irf_plot(b.DMraw_@shock)
+endloop
+*/
+
+/* Activate if wished
+#-----------------------------------------------------
+# Plot multipliers with additional options for drawing
+# Save as *.pdf
+#-----------------------------------------------------
+strings S = varnames(Lplot)
+S[1] = "Y"                  # The endogenous is always named "Y"
+
+scalar font = 11
+scalar lw = 2.0
+loop foreach i Lplot -q
+    string figpath = "irf_$i.png"
+    string title = "foo"
+    string xlab = "put a x label here"
+    string ylab = "put a y label here"
+    # For the endogenous always use "y" irrespetive of the actual name!
+    string shock = S[i]
+    irf_plotadv(b.DM_@shock, figpath, title, xlab,ylab, \
+      font, lw)
+endloop
+*/

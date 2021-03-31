@@ -1,0 +1,757 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gretl-functions>
+<gretl-function-package name="ADMBP" needs-time-series-data="true" minver="2017a" lives-in-subdir="true">
+<author email="atecon@posteo.de">Artur Tarassow</author>
+<version>0.97</version>
+<date>2021-03-31</date>
+<description>ARDL Dynamic Multiplier Bootstrap Package</description>
+<tags>C22 C20</tags>
+<help>
+pdfdoc:ADMBP.pdf
+</help>
+<gretl-function name="lagselect" type="void">
+ <params count="1">
+  <param name="b" type="bundleref"/>
+ </params>
+<code>/* */
+errorif(b.pq == 1, &quot;You have to set the maximum lag-length pq &gt; 1&quot;)
+series y = b.my
+list xlist = b.mx
+list rxlist = b.mrx
+lags xlist
+smpl +b.pq ;
+matrix mat = zeros(b.pq,3)
+rnam = sprintf(&quot;%2.0f &quot;, seq(1, b.pq))
+loop i=1..b.pq -q
+  list Lx = xlist(b.pqmin to -$i) rxlist
+  catch var $i y ; Lx --silent
+  if $error
+    mat[i,] = mshape(NA, 1, 3)
+  else
+    mat[i,] = $aic ~ $bic ~ $hqc
+  endif
+endloop
+matrix b.pq = iminc(mat[,b.crit])
+if b.optsil == &quot;&quot;
+  printf &quot;\n*** Lag selection based on %d obs. ***\n&quot;, $nobs
+  printf &quot;--------------------------------------\n&quot;
+  cnameset(mat, &quot;AIC BIC HQ&quot;)
+  rnameset(mat, rnam)
+  printf &quot;%12.4f\n&quot;, mat
+  printf &quot;The selected information criteria suggests an ARDL(%d,%d) in levels.\n&quot;, b.pq, b.pq
+  printf &quot;\n&quot;
+endif
+</code>
+</gretl-function>
+<gretl-function name="setARDL" type="bundle">
+ <params count="13">
+  <param name="Y" type="series" const="true">
+<description>Level of endogenous</description>
+  </param>
+  <param name="xlist" type="list" const="true">
+<description>List of exog. in levels</description>
+  </param>
+  <param name="rxlist" type="list" optional="true">
+<description>List of restricted I(0)s excl. intercept</description>
+  </param>
+  <param name="pqmax" type="int" min="1" default="4">
+<description>Max. lag length in levels to test for y and xlist only</description>
+  </param>
+  <param name="crit" type="int" min="1" max="3" default="1">
+<description>Info criteria</description>
+<labels count="3">
+"AIC" "BIC" "HQ" </labels>
+  </param>
+  <param name="condARDL" type="bool" default="1">
+<description>Consider contemporanoeus effects of xlist 1:yes</description>
+  </param>
+  <param name="shocktype" type="int" min="0" max="1">
+<description>Shocktype</description>
+<labels count="2">
+"0=transitory" "1=permanent" </labels>
+  </param>
+  <param name="btype" type="int" min="0" max="4" default="1">
+<description>Type of bootstrap</description>
+<labels count="5">
+"0=parametric" "1=non-parametric" "2=wild uniform" "3=wild Rademacher" "4=block-boots." </labels>
+  </param>
+  <param name="bootrep" type="int" min="99" default="999">
+<description>No. of bootstrap repl.</description>
+  </param>
+  <param name="horiz" type="int" min="1" default="12">
+<description>Horzion periods</description>
+  </param>
+  <param name="cilevel" type="scalar" min="0.01" max="0.99" default="0.1">
+<description>Width confidence intervals alpha=1-cilevel</description>
+  </param>
+  <param name="verb" type="bool" default="1">
+<description>Print details 0=No, 1=Yes</description>
+  </param>
+  <param name="failstop" type="scalar" min="0.01" max="0.9" default="0.2">
+<description>Fraction of failed bootstrap iterations before full stop</description>
+  </param>
+ </params>
+<code>bundle b
+scalar b.addDET = 0
+if exists(rxlist)
+  if inlist(rxlist, &quot;const&quot;)
+    scalar b.addDET = 1
+    rxlist -= const
+  endif
+else
+  list rxlist = null
+endif
+list Lall = Y xlist rxlist
+strings b.Sall = strfilt(Lall)
+matrix b.my = {Y}
+matrix b.mx = xlist
+matrix b.mrx = rxlist
+b.nx = nelem(xlist)
+b.nrx = nelem(rxlist)
+b.pq = pqmax
+b.crit = crit
+b.condARDL = condARDL
+scalar pqmin = (b.condARDL == 1) ? 0 : -1
+b.pqmin = pqmin
+b.cilevel = cilevel
+b.btype = btype
+b.bootrep = bootrep
+b.horiz = horiz
+b.shocktype = shocktype
+b.failstop = failstop
+string b.optsil = (verb == 1) ? &quot;&quot; : &quot;--quiet&quot;
+return b
+</code>
+</gretl-function>
+<gretl-function name="runARDL" type="void">
+ <params count="1">
+  <param name="b" type="bundleref"/>
+ </params>
+<code>/* Actual estimation part. */
+errorif(inbundle(b, &quot;finset&quot;), &quot;Before calling runARDL() a 2nd time, call setARDL() 1st again.&quot;)
+scalar b.cancel = 0
+series Y = b.my
+list xlist = b.mx
+list rxlist = b.mrx
+lags Y xlist
+quiet = b.optsil
+if b.optsil==&quot;&quot;
+  ARDLinfo(&amp;b)
+endif
+# TODO: In principle we could provide an user-defined matrix before calling runARDL()
+# This could be helpful if want to provide a gappy coefficient matrix with some
+# zeros or fixed parameters (for whetever reasons).
+list lDET = null
+if b.addDET == 1
+  list lDET += const
+endif
+ols Y lDET Y(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist @quiet
+# Evaluate stability first
+scalar b.ay = b.addDET + 1
+scalar b.ey = b.ay+b.pq-1
+b.ARcoef = $coeff[b.ay:b.ey]
+isstable = is_stable_model(b.ARcoef)
+if !isstable
+  print &quot;Error: The model is unstable. Re-specify and try again&quot;
+  b.cancel = 1
+endif
+if b.cancel == 0
+  scalar b.ax = b.ey+1
+  scalar b.ex = b.ax + b.nx*(b.condARDL + b.pq)-1
+  # Zcoef: Const.~X1(0 to -pq)~...~Xk(0 to -pq)~rxlist (incl. time, dummies etc.)
+  if b.addDET &gt; 0
+    b.Zcoef = $coeff[1:(b.ay-1)] | $coeff[b.ey+1:]	# Deterministics + DL coeff needed for ysim()
+  else
+    b.Zcoef = $coeff[b.ey+1:]
+  endif
+  b.muhat = {$uhat}
+  bootARDL(&amp;b)
+  # Compute median and confidence intervals of dynamic multipliers for each variable y and xlist.
+  # DM_@vname: lower bound ~ median ~ upper bound
+  matrix crit = {b.cilevel/2, 0.5, (1 - b.cilevel/2)}
+  loop i=1..(1+b.nx) -q
+    string vname = b.Sall[$i]
+    b.DM_@vname = quantile(b.DMraw_@vname', crit)'
+  endloop
+else
+  # unstable case
+  loop i=1..(1+b.nx) -q
+    string vname = b.Sall[$i]
+    matrix b.DM_@vname = NA
+  endloop
+endif
+b.finset = 1
+</code>
+</gretl-function>
+<gretl-function name="LRbeta" type="void">
+ <params count="1">
+  <param name="b" type="bundleref"/>
+ </params>
+<code># Transform the ARDL level model coefficients in order
+# to obtain the the error-correction coeff. &quot;rho&quot;, the long-run
+# multipliers (median bootstrap values) and its bootstrap S.D.
+# RHO = -[1-SUM_j=1^pq a_{t-j}]
+matrix ybeta = b.BHAT_b[,b.ay:b.ey]
+matrix b.RHO_b = -(1-sumr(ybeta))
+matrix b.RHO = meanc(b.RHO_b) ~ quantile(b.RHO_b,0.5) ~ sd(b.RHO_b)
+cnameset(b.RHO, &quot;Mean Median SD&quot;)
+# Long-run multiplier
+# b_i = (SUM_j=0^pq c_{t-j})/(1-rho)
+matrix xbetas = b.BHAT_b[,b.ax:b.ex]
+scalar in=1
+loop i=1..(1+b.nx) -q
+  string vname = b.Sall[$i]
+  if i==1
+    matrix b.LRbeta_@vname_b = sumr(ybeta)./(1.-sumr(ybeta))	# long-run multiplier of a change in y on y
+  else
+    out=in+(b.condARDL+b.pq)-1
+    cmat = xbetas[,in:out]
+    # long-run multiplier of a change in x_i on y
+    b.LRbeta_@vname_b = sumr(cmat)./(1.-sumr(ybeta))
+    in=in+(b.condARDL+b.pq)
+  endif
+  matrix b.LRbeta_@vname = mean(b.LRbeta_@vname_b) ~ quantile(b.LRbeta_@vname_b,0.5) ~ sd(b.LRbeta_@vname_b)
+  cnameset(b.LRbeta_@vname, &quot;Mean Median SD&quot;)
+endloop
+# Compute LR coeff and SEs using Bewley's IV estim.
+Bewley(&amp;b)
+# Print results
+if b.optsil == &quot;&quot;
+  ECMinfo(&amp;b)
+endif
+# Bundle cleanup
+delete b.nx
+delete b.pq
+delete b.ey
+delete b.ax
+delete b.ex
+delete b.ay
+delete b.condARDL
+delete b.cilevel
+delete b.optsil
+</code>
+</gretl-function>
+<gretl-function name="ECterm" type="void">
+ <params count="1">
+  <param name="b" type="bundleref"/>
+ </params>
+<code># Compute error correction term (cointegrating relationship)
+# based on bootstrap median long-run coeff.
+# See for the different cases:
+# --&gt;http://blog.eviews.com/2017/04/autoregressive-distributed-lag-ardl.html
+# Case 1: no constant
+# --&gt; ECt = yt - b'x_t
+# Case 2: restricted constant and no trend
+# --&gt; ECt = yt - b'x_t - a0/rho
+# Case 3: unrestricted constant and no trend
+# --&gt; ECt = yt - b'x_t
+# Case 4: unrestricted constant and restricted trend
+# --&gt; ECt = yt - b'x_t - a1/rho
+# Case 5: unrestricted constant and unrestricted trend
+# --&gt; ECt = yt - b'x_t
+# TODO: add constant cases!
+series Y = b.my
+list xlist = b.mx
+scalar nx = nelem(xlist)
+matrix beta = zeros(nx,1)
+loop i=1..nx -q
+  string vname = b.Sall[1+$i]
+  beta[i] = b.LRbeta_@vname[2]			# based on median value
+endloop
+list LR = xlist
+list lall = Y LR
+matrix X = {lall}
+series b.ECM = Y - lincomb(LR,beta)
+#setinfo b.ECM --description=&quot;EC unrestricted const. &quot;
+if b.addDET == 1
+  scalar a0 = quantile(b.BHAT_b[,1],0.5)	# bootstrap median constant
+  series b.ECMrc = Y - lincomb(LR,beta) - a0/b.RHO[2]	# Case 2
+  #setinfo b.ECMrc --description=&quot;EC restricted const.&quot;
+endif
+</code>
+</gretl-function>
+<gretl-function name="irf_plot" type="void">
+ <params count="4">
+  <param name="m" type="matrix" const="true"/>
+  <param name="title" type="string" const="true"/>
+  <param name="xlab" type="string" const="true"/>
+  <param name="ylab" type="string" const="true"/>
+ </params>
+<code>/* */
+set force_decpoint on
+plot m
+  option single-yaxis
+  options with-lines time-series
+  literal set linetype 1 lc rgb 'grey' dt 2 lw 1.5
+  literal set linetype 2 lc rgb 'black' lw 2
+  literal set linetype 3 lc rgb 'grey' dt 2 lw 1.5
+  literal set nokey
+  printf &quot;set title '%s'&quot;, title
+  printf &quot;set xlabel '%s'&quot;, xlab
+  printf &quot;set ylabel '%s'&quot;, ylab
+end plot --output=display
+set force_decpoint off
+</code>
+</gretl-function>
+<gretl-function name="irf_plotadv" type="void">
+ <params count="7">
+  <param name="mplot" type="matrix" const="true"/>
+  <param name="fname" type="string" const="true"/>
+  <param name="title" type="string" const="true"/>
+  <param name="xlab" type="string" const="true"/>
+  <param name="ylab" type="string"/>
+  <param name="fontsize" type="int" min="5" default="14">
+<description>Set font size in pt</description>
+  </param>
+  <param name="LW" type="scalar">
+<description>linewidth</description>
+  </param>
+ </params>
+<code>/* */
+string fontopt = sprintf(&quot;font='serif,%d'&quot;, fontsize)
+set force_decpoint on
+plot mplot
+  options with-lines time-series single-yaxis #@fontopt
+  literal set nokey
+  printf &quot;set title '%s'&quot;, title
+  printf &quot;set xlabel '%s' offset 0,1&quot;, xlab
+  printf &quot;set ylabel '%s'&quot;, ylab
+  literal set y2tics
+  literal set xtics out offset 0,0.7			# Move xtics cloer to the x-axis
+  literal set ytics out
+  #2) put the border more to the background by applying it
+  # only on the left and bottom part and put it and the tics in gray
+  printf &quot;set style line 11 lc rgb \&quot;#808080\&quot; lt 1&quot;
+  literal set border 3 back ls 11			# get rid of upper + left border
+  literal set tics nomirror
+  #add a slight grid to make it easier to follow the exact position of the curves
+  printf &quot;set style line 12 lc rgb \&quot;#808080\&quot; lt 0 lw 1&quot;
+  literal set grid back ls 12
+  # Line Styles
+  printf &quot;set linetype 1 lc rgb 'grey' dt 2 lw %d&quot;, LW
+  printf &quot;set linetype 2 lc rgb 'black' lw %d&quot;, LW
+  printf &quot;set linetype 3 lc rgb 'grey' dt 2 lw %d&quot;, LW
+end plot --output=&quot;@fname&quot;
+set force_decpoint off
+</code>
+</gretl-function>
+<gretl-function name="strfilt" type="strings" private="1">
+ <params count="1">
+  <param name="L" type="list" const="true"/>
+ </params>
+<code>/* Get rid of &quot;_&quot; and numbers 1-9  name */
+strings S = array(nelem(L))
+loop foreach i L -q
+  string s = &quot;$i&quot;
+  s = strsub(s,&quot;_&quot;,&quot;&quot;)
+  loop j=1..9 -q
+    s = strsub(s,&quot;$j&quot;,&quot;&quot;)
+  endloop
+  S[i] = s
+endloop
+return S
+</code>
+</gretl-function>
+<gretl-function name="is_stable_model" type="scalar" private="1">
+ <params count="1">
+  <param name="ARcoef" type="matrix" const="true"/>
+ </params>
+<code>/* Check for dynamic stability.
+return: 1 if stable, otherwise 0. */
+scalar value = 1 - sum(ARcoef)
+if -value &lt; -0.00001
+  return 1
+else
+  return 0
+endif
+</code>
+</gretl-function>
+<gretl-function name="drawE" type="void" private="1">
+ <params count="2">
+  <param name="b" type="bundleref"/>
+  <param name="e" type="seriesref"/>
+ </params>
+<code>/* */
+series uhat = b.muhat
+#uhat = uhat-mean(uhat)	# FIXME: is re-centering needed here??
+if b.btype == 0
+  series e = normal(0,sd(uhat))	# parametric bootstrap
+elif b.btype == 1
+  series e = resample(uhat)		# draw from estimated residuals by resampling (may suffer from serial correl.)
+elif b.btype == 2						# wild uniform
+  series e = resample(uhat) * uniform(0,1)
+elif b.btype == 3				# Use Rademacher distrib. instead of uniform(0,1)
+  series Rad = uniform(0,1)
+  Rad = -1*(Rad&lt;=0.5) + (Rad&gt;0.5)
+  series e = resample(uhat) * Rad
+elif b.btype == 4						# block bootstrap
+  series e = SB(b.muhat)
+endif
+</code>
+</gretl-function>
+<gretl-function name="SB" type="series" private="1">
+ <params count="1">
+  <param name="x" type="matrix"/>
+ </params>
+<code>/* */
+#matrix x &quot;Data to be resampled&quot;
+# FIXME: should x be the de-meaned residuals??
+scalar n = rows(x)
+errorif(n == 0, &quot;Data input error, check your data.&quot;)
+b = round(1.75*(n^(1/3)))	# mean block size to rule-of-thumb value
+p = 1/b   					# probability of a new run
+s = seq(1,n)'              	# sequence
+u = 1 | (muniform(n-1,1) .&lt; p) # run starts
+r = cum(u)                     # id of each run
+nr = r[n]                      # how many runs ?
+sub = selifr(r ~ s, u)         # starting row for each run
+sub[,2] -= mrandgen(i, 1, n, nr, 1) # adjust starting points
+# --- create mini-trends ----------------
+s -= replace(r, sub[,1], sub[,2])
+# roll over if necessary
+s = ((s-1)%n) + 1
+series xx = x[s,]
+return xx
+</code>
+</gretl-function>
+<gretl-function name="bootARDL" type="void" private="1">
+ <params count="1">
+  <param name="b" type="bundleref"/>
+ </params>
+<code>/* */
+series Y = b.my
+list xlist = b.mx
+list rxlist = b.mrx
+series uhat = b.muhat
+string quiet = b.optsil
+lags Y xlist
+list Z = null
+if b.addDET &gt; 0
+  list Z += const
+endif
+list Z += xlist(b.pqmin to -b.pq) rxlist
+matrix Xbeta = b.Zcoef
+loop i=1..(1+b.nx) -q
+  # Store dynamic multipliers of each xlist regressor
+  matrix mout$i = zeros(1+b.horiz,b.bootrep)
+endloop
+scalar nloop = 1
+scalar failed = 0
+scalar failed_bootstrap = 0
+loop while nloop &lt;= b.bootrep -q
+  series e = 0
+  drawE (&amp;b,&amp;e)
+  # Simulate the DGP
+  series y_b = zeromiss(0)
+  varsimA(Y, b.ARcoef, Z, Xbeta, e, b.pq, &amp;y_b)
+  lags y_b 1
+  list ylist_b = y_b(-1 to -b.pq)
+  if b.addDET == 1
+    ols y_b const ylist_b xlist(b.pqmin to -b.pq) rxlist --quiet
+  else
+    ols y_b ylist_b xlist(b.pqmin to -b.pq) rxlist --quiet
+  endif
+  if nloop == 1
+    matrix BHAT_b = zeros(b.bootrep,nelem($xlist))
+  endif
+  matrix ARcoef_b = $coeff[b.ay:b.ey]
+  scalar isstable = is_stable_model(ARcoef_b)
+  if !isstable
+    failed++
+    if (failed / b.bootrep) &gt;= b.failstop
+      printf &quot;\nError: %d pct. of the bootstrap iterations failed due to instability.\n&quot;, 100*b.failstop
+      print &quot;Error: Re-consider to re-specify your model.&quot;
+      failed_bootstrap = 1
+      break
+    endif
+  else
+    BHAT_b[nloop,] = $coeff'
+    shockbeta = $coeff[b.ax:b.ex]
+    shockbeta = mshape(shockbeta, (b.condARDL + b.pq), b.nx)
+    loop i=1..(1+b.nx) -q
+      matrix mtmp = zeros(b.horiz,1)
+      if i == 1		# response of y to a shock in y
+        dmfilt(ARcoef_b, ARcoef_b, b.horiz, b.shocktype, &amp;mtmp)
+      else		# response of y to a shock in x_i
+        dmfilt(ARcoef_b, shockbeta[,i-1], b.horiz, b.shocktype, &amp;mtmp)
+      endif
+      mout$i[,nloop] = mtmp
+    endloop
+    nloop++
+  endif
+endloop
+b.BHAT_b = BHAT_b
+loop i=1..(1+b.nx) -q
+  string vname = b.Sall[$i]
+  matrix b.DMraw_@vname = mout$i
+endloop
+if failed_bootstrap == 1 &amp;&amp; (quiet != &quot;--quiet&quot;)
+  printf &quot;\nError: %.2f pct. of the %d bootstrap iterations failed due to instability.\n&quot;, (failed/b.bootrep), b.bootrep
+endif
+# Clean up the bundle
+delete b.nrx
+delete b.crit
+#delete b.mrx
+delete b.Zcoef
+#delete b.btype
+#delete b.shocktype
+delete b.ARcoef
+#delete b.addDET
+#delete b.pqmin
+delete b.muhat
+</code>
+</gretl-function>
+<gretl-function name="varsimA" type="void" private="1">
+ <params count="7">
+  <param name="Y" type="series"/>
+  <param name="ARbeta" type="matrix">
+<description>Coeff. vector of Y</description>
+  </param>
+  <param name="X" type="list">
+<description>rxlist ~ xlist of exogenous, -pmin to -p</description>
+  </param>
+  <param name="Xbeta" type="matrix">
+<description>coeff vector of Xs</description>
+  </param>
+  <param name="e" type="series">
+<description>resampled</description>
+  </param>
+  <param name="p" type="int"/>
+  <param name="ysim" type="seriesref"/>
+ </params>
+<code>/* # Thankfully borrowed from Jack! */
+series m = lincomb(X, Xbeta)
+scalar T = minr(rows({e})~rows({m}))
+if p &gt; 1
+  matrix A = ARbeta' | (I(p-1) ~ 0)
+else
+  matrix A = ARbeta'
+endif
+matrix y0 = mreverse({Y}[1:p])'
+matrix U = {e + m} ~ zeros(T, p-1)
+matrix S = varsimul(A, U, y0)
+S = S[,1]
+if p &gt; 1
+  S = {Y}[1:p-1] | S
+endif
+series ysim = S
+</code>
+</gretl-function>
+<gretl-function name="ARDLinfo" type="void" private="1">
+ <params count="1">
+  <param name="b" type="bundleref"/>
+ </params>
+<code>/* */
+printf &quot;\n******************************************\n&quot;
+printf &quot;*** ARDL (%d) in levels regression       ***\n&quot;, b.pq
+printf &quot;******************************************\n&quot;
+printf &quot;\nSettings for dynamic multiplier computation\n&quot;
+if b.shocktype == 0
+  string stype = &quot;temporary&quot;
+else
+  string stype = &quot;permanent&quot;
+endif
+printf &quot;\nShock type: %s\n&quot;, stype
+printf &quot;Bootstrap iterations: %d\n&quot;, b.bootrep
+if b.btype == 0
+  string btype = &quot;parametric&quot;
+elif b.btype == 1
+  string btype = &quot;non-parametric&quot;
+elif b.btype == 2
+  string btype = &quot;wild (uniform)&quot;
+elif b.btype == 3
+  string btype = &quot;wild (Rademacher)&quot;
+elif b.btype == 4
+  string btype = &quot;block-bootstrap&quot;
+endif
+printf &quot;Bootstrap type: %s\n&quot;, btype
+printf &quot;Confidence interval: %.2f\n&quot;, (1-b.cilevel)
+</code>
+</gretl-function>
+<gretl-function name="ECMinfo" type="void" private="1">
+ <params count="1">
+  <param name="b" type="bundleref"/>
+ </params>
+<code>/* */
+printf &quot;\n******************************************\n&quot;
+printf &quot;*** Error-correction model bootstrap   ***\n&quot;
+printf &quot;*** coefficient estimates           ***\n&quot;
+printf &quot;******************************************\n&quot;
+printf &quot;\nError correction coeff. rho (bootstrap values)\n&quot;
+printf &quot;----------------------------------------------\n&quot;
+printf &quot;                 Mean   Median     S.D.\n&quot;
+printf &quot;       rho %10.4f %8.4f %8.4f \n&quot;, b.RHO[1], b.RHO[2], b.RHO[3]
+printf &quot;\nLong-run multipliers (bootstrap values)\n&quot;
+printf &quot;----------------------------------------------\n&quot;
+printf &quot;                 Mean   Median     S.D.\n&quot;
+loop i=1..(1+b.nx) -q
+  string vname = b.Sall[$i]
+  printf &quot;%10s %10.4f %8.4f %8.4f\n&quot;, b.Sall[$i], b.LRbeta_@vname[1], b.LRbeta_@vname[2], b.LRbeta_@vname[3]
+endloop
+printf &quot;\nBewley's long-run multipliers (2SLS point estimates)\n&quot;
+printf &quot;----------------------------------------------\n&quot;
+printf &quot;               Coeff.     S.D. \n&quot;
+loop i=2..(1+b.nx) -q
+  string vname = b.Sall[$i]
+  printf &quot;%10s %10.4f %8.4f\n&quot;, b.Sall[$i], b.LRBew[i-1], b.LRBewSE[i-1]
+endloop
+printf &quot;******************************************\n&quot;
+</code>
+</gretl-function>
+<gretl-function name="Bewley" type="void" private="1">
+ <params count="1">
+  <param name="b" type="bundleref"/>
+ </params>
+<code>/* Estimate the long-run multiplier and associated S.E. using the IV approach by Bewley (1979) */
+series Y = b.my
+series dY = diff(Y)
+list xlist = b.mx
+list Dxlist = diff(xlist)
+list rxlist = b.mrx
+lags Y xlist
+if b.optsil == &quot;&quot;
+  ARDLinfo(&amp;b)
+endif
+list lDET = null
+if b.addDET==1
+  lDET+=const
+endif
+#-------------
+# Bewley(1979)
+#-------------
+# Set the instruments
+pqmin = b.pqmin
+list inst = lDET Y(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
+# IV 2SLS
+list all = lDET xlist dY(0 to -(b.pq+1)) Dxlist(0 to -(b.pq+1)) rxlist
+tsls Y lDET xlist dY(b.pqmin to -(b.pq-1)) Dxlist(b.pqmin to -(b.pq-1)) rxlist ; inst --robust --quiet
+scalar nx = nelem(xlist)
+scalar ax = 1+nelem(lDET)
+scalar ex = ax+nx-1
+matrix LRBew = $coeff[ax:ex]
+matrix LRBewSE = $stderr[ax:ex]
+b.LRBew = LRBew
+b.LRBewSE = LRBewSE
+</code>
+</gretl-function>
+<gretl-function name="dmfilt" type="void" private="1">
+ <params count="5">
+  <param name="ARcoef" type="matrix" const="true"/>
+  <param name="ycoef" type="matrix" const="true"/>
+  <param name="horiz" type="int"/>
+  <param name="shocktype" type="int"/>
+  <param name="DM" type="matrixref"/>
+ </params>
+<code>/* */
+matrix impulse = ones(horiz + 1, 2)
+impulse[2:,1] = 0
+DM = filter(impulse, ycoef, ARcoef)
+if shocktype == 0
+  DM = DM[,1]
+elif shocktype == 1
+  DM = DM[,2]
+endif
+</code>
+</gretl-function>
+<sample-script>
+clear
+set verbose off
+set seed 1234
+
+include ADMBP.gfn
+
+open AWM.gdt --quiet
+
+# Construct some series and lists
+series inc = ln(YER)
+series c = ln(PCR)
+series w = ln(WLN/PCD)
+list xlist = inc w
+list rxlist = const time
+list Lall = c xlist rxlist
+
+smpl Lall --no-missing # make sure you don't have any missings
+
+# ARDL parameters
+scalar pqmax = 4
+scalar condARDL = 1
+scalar infocrit = 1
+# Bootstrap and confidence interval parameters
+scalar horiz = 40
+scalar cilevel = 0.1
+scalar btype = 4
+scalar bootrep = 1000
+scalar shocktype = 1
+
+#------------------------
+# Set up the base bundle
+#------------------------
+bundle b = setARDL(c, xlist, rxlist, pqmax, infocrit,\
+    condARDL, shocktype, btype, bootrep, horiz, cilevel)
+
+# Determine the optimal lag length (optional)
+lagselect(&amp;b)
+
+# Compute bootstrap dynamic multipliers
+runARDL(&amp;b)
+print b
+
+# Compute bootstrap error-correction coeff. +
+# long-run multipliers based on ARDL
+LRbeta(&amp;b)
+matrix LRinc = b.LRbeta_inc
+print LRinc
+
+
+# Compute bootstrap error-correction term
+# y - bx = z based on bootstrap median value of b
+ECterm(&amp;b)
+series ECM = b.ECM		# unrestricted constant
+series ECMrc = b.ECMrc	# restricted const.
+gnuplot ECM ECMrc --time-series --with-lines --output=display
+
+
+# Plot multipliers
+list Lplot = Lall - rxlist
+
+irf_plot(b.DM_inc, &quot;Shock of inc on c&quot;, &quot;Horizon&quot;, &quot;Response&quot;)
+
+/* Activate if wished
+strings S = varnames(Lplot)
+S[1] = &quot;Y&quot;                  # The endogenous is always named &quot;Y&quot;
+
+loop foreach i Lplot -q
+    string ylab = &quot;&quot;
+    string xlab = &quot;Horizon&quot;
+    string shock = S[i]		# For the endogenous always use &quot;y&quot; irrespetive of the actual name!
+    # Plot the bootstrap median and confidence intervall of the response of y on a change in &quot;shock&quot;
+    irf_plot(b.DM_@shock, &quot;Shock of @shock on c&quot;, xlab, ylab)
+
+    # Plot ALL bootstrap dynamic multipliersof the response of y on a change in &quot;shock&quot;
+    #irf_plot(b.DMraw_@shock)
+endloop
+*/
+
+#/* Activate if wished
+#-----------------------------------------------------
+# Plot multipliers with additional options for drawing
+# Save as *.pdf
+#-----------------------------------------------------
+strings S = varnames(Lplot)
+S[1] = &quot;Y&quot;                  # The endogenous is always named &quot;Y&quot;
+
+scalar font = 11
+scalar lw = 2.0
+loop foreach i Lplot -q
+    string figpath = &quot;irf_$i.png&quot;
+    string title = &quot;foo&quot;
+    string xlab = &quot;put a x label here&quot;
+    string ylab = &quot;put a y label here&quot;
+    string shock = S[i]		# For the endogenous always use &quot;y&quot; irrespetive of the actual name!
+    irf_plotadv(b.DM_@shock, figpath, title, xlab,ylab, \
+      font, lw)
+endloop
+#*/
+</sample-script>
+</gretl-function-package>
+</gretl-functions>

@@ -1,0 +1,11 @@
+author = Artur Tarassow
+email = atecon@posteo.de
+version = 0.97
+date = 2021-03-31
+description = ARDL Dynamic Multiplier Bootstrap Package
+tags = C22 C20
+min-version = 2017a
+data-requirement = needs-time-series-data
+public = lagselect setARDL runARDL LRbeta ECterm irf_plot irf_plotadv
+help = ADMBP.pdf
+sample-script = ADMBP_sample.inp
