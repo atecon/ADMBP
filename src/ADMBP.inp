@@ -68,19 +68,20 @@ function scalar is_stable_model (const matrix ARcoef)
 end function
 
 
-function bundle setARDL (const series Y "Level of endogenous",
-                        const list xlist "List of exog. in levels",
-                        list rxlist[null] "List of restricted I(0)s excl. intercept",
-                        int pqmax[1::4] "Max. lag length in levels to test for y and xlist only",
-                        int crit[1:3:1] "Info criteria" {"AIC", "BIC", "HQ"},
-                        bool condARDL[1] "Consider contemporanoeus effects of xlist 1:yes",
-                        int shocktype[0:1:] "Shocktype" {"0=transitory", "1=permanent"},
-                        int btype[0:4:1] "Type of bootstrap" {"0=parametric", "1=non-parametric", "2=wild uniform", "3=wild Rademacher", "4=block-boots."},
-                        int bootrep[99::999] "No. of bootstrap repl.",
-                        int horiz[1::12] "Horzion periods",
-                        scalar cilevel[0.01:0.99:0.1] "Width confidence intervals alpha=1-cilevel",
-                        bool verb[1] "Print details 0=No, 1=Yes",
-                        scalar failstop[0.01:0.9:0.2] "Fraction of failed bootstrap iterations before full stop")
+function bundle setARDL (const series Y "Endogenous in levels",
+                         const list xlist "Exogenous in levels",
+                         list rxlist[null] "Restricted I(0)s excl. intercept",
+                         int pqmax[1::4] "Max. lag-length in levels",
+                         int crit[1:3:1] "Info criteria" {"AIC", "BIC", "HQ"},
+                         bool condARDL[1] "Consider contemporanoeus effects of xlist",
+                         int shocktype[0:1:] "Shocktype" {"transitory", "permanent"},
+                         int btype[0:4:1] "Bootstrap type" {"parametric", "non-parametric", "wild uniform", "wild Rademacher", "block-boots."},
+                         int bootrep[99::999] "No. of bootstrap iterations",
+                         int horiz[1::12] "Max. horzion periods",
+                         scalar cilevel[0.01:0.99:0.1] "Width confidence intervals 1-cilevel",
+                         bool verb[1] "Print details",
+                         scalar failstop[0.01:0.9:0.2] "Fraction of failed bootstrap iterations before full stop")
+    /* Setup model for estimation step. */
 
     bundle b
 
@@ -141,7 +142,7 @@ function void runARDL (bundle *b)
 
     # TODO: In principle we could provide an user-defined matrix before calling runARDL()
     # This could be helpful if want to provide a gappy coefficient matrix with some
-    # zeros or fixed parameters (for whetever reasons).
+    # zeros or fixed parameters (for whatever reasons).
     list lDET = null
     if b.addDET == 1
         list lDET += const
@@ -615,11 +616,11 @@ end function
 
 
 function void irf_plotadv (const matrix mplot,
-                          const string fname,
-                          const string title,
-                          const string xlab,string ylab,
-                          int fontsize[5::14] "Set font size in pt",
-                          scalar LW "linewidth")
+                           const string fname,
+                           const string title,
+                           const string xlab,string ylab,
+                           int fontsize[5::14] "Set font size in pt",
+                           scalar LW "linewidth")
     /* */
 
     string fontopt = sprintf("font='serif,%d'", fontsize)
@@ -633,7 +634,7 @@ function void irf_plotadv (const matrix mplot,
         printf "set xlabel '%s' offset 0,1", xlab
         printf "set ylabel '%s'", ylab
         literal set y2tics
-        literal set xtics out offset 0,0.7			# Move xtics cloer to the x-axis
+        literal set xtics out offset 0,0.7	# Move xtics closer to the x-axis
         literal set ytics out
         #2) put the border more to the background by applying it
         # only on the left and bottom part and put it and the tics in gray

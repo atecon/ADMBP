@@ -751,7 +751,7 @@ non-parametric
 \end_layout
 
 \begin_layout Standard
-To illustrate the two semiparametric wild bootstrap approaches, start from
+To illustrate the two semi-parametric wild bootstrap approaches, start from
  the wild bootstrap DGP 
 \begin_inset Formula $y_{t}^{\ast}=X_{t}\tilde{\beta}+f(\tilde{u}_{t})v_{t}^{\ast}$
 \end_inset
@@ -2428,7 +2428,7 @@ list xlist
 \family typewriter
 list rxlist[null]
 \family default
-: list of additional deterministic variables (optional)
+: list of additional restricted deterministic variables (optional)
 \end_layout
 
 \begin_layout Enumerate
