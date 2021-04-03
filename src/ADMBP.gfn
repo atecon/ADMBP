@@ -3,7 +3,7 @@
 <gretl-function-package name="ADMBP" needs-time-series-data="true" minver="2020a" lives-in-subdir="true">
 <author email="atecon@posteo.de">Artur Tarassow</author>
 <version>0.99</version>
-<date>2021-03-31</date>
+<date>2021-04-03</date>
 <description>ARDL Dynamic Multiplier Bootstrap Package</description>
 <tags>C22 C20</tags>
 <help>
@@ -46,16 +46,16 @@ endif
 <gretl-function name="setARDL" type="bundle">
  <params count="13">
   <param name="Y" type="series" const="true">
-<description>Level of endogenous</description>
+<description>Endogenous in levels</description>
   </param>
-  <param name="xlist" type="list" const="true">
-<description>List of exog. in levels</description>
+  <param name="xlist" type="list">
+<description>Exogenous in levels</description>
   </param>
   <param name="rxlist" type="list" optional="true">
-<description>List of restricted I(0)s excl. intercept</description>
+<description>Restricted I(0)s excl. intercept</description>
   </param>
   <param name="pqmax" type="int" min="1" default="4">
-<description>Max. lag length in levels to test for y and xlist only</description>
+<description>Max. lag-length in levels</description>
   </param>
   <param name="crit" type="int" min="1" max="3" default="1">
 <description>Info criteria</description>
@@ -63,35 +63,36 @@ endif
 "AIC" "BIC" "HQ" </labels>
   </param>
   <param name="condARDL" type="bool" default="1">
-<description>Consider contemporanoeus effects of xlist 1:yes</description>
+<description>Consider contemporaneous effects of xlist</description>
   </param>
   <param name="shocktype" type="int" min="0" max="1">
 <description>Shocktype</description>
 <labels count="2">
-"0=transitory" "1=permanent" </labels>
+"transitory" "permanent" </labels>
   </param>
   <param name="btype" type="int" min="0" max="4" default="1">
-<description>Type of bootstrap</description>
+<description>Bootstrap type</description>
 <labels count="5">
-"0=parametric" "1=non-parametric" "2=wild uniform" "3=wild Rademacher" "4=block-boots." </labels>
+"parametric" "non-parametric" "wild uniform" "wild Rademacher" "block-boots." </labels>
   </param>
   <param name="bootrep" type="int" min="99" default="999">
-<description>No. of bootstrap repl.</description>
+<description>No. of bootstrap iterations</description>
   </param>
   <param name="horiz" type="int" min="1" default="12">
-<description>Horzion periods</description>
+<description>Max. horizon periods</description>
   </param>
   <param name="cilevel" type="scalar" min="0.01" max="0.99" default="0.1">
-<description>Width confidence intervals alpha=1-cilevel</description>
+<description>Width confidence intervals 1-cilevel</description>
   </param>
   <param name="verb" type="bool" default="1">
-<description>Print details 0=No, 1=Yes</description>
+<description>Print details</description>
   </param>
   <param name="failstop" type="scalar" min="0.01" max="0.9" default="0.2">
 <description>Fraction of failed bootstrap iterations before full stop</description>
   </param>
  </params>
-<code>bundle b
+<code>/* Setup model for estimation step. */
+bundle b
 scalar b.addDET = 0
 if exists(rxlist)
   if inlist(rxlist, &quot;const&quot;)
@@ -140,7 +141,7 @@ if b.optsil==&quot;&quot;
 endif
 # TODO: In principle we could provide an user-defined matrix before calling runARDL()
 # This could be helpful if want to provide a gappy coefficient matrix with some
-# zeros or fixed parameters (for whetever reasons).
+# zeros or fixed parameters (for whatever reasons).
 list lDET = null
 if b.addDET == 1
   list lDET += const
@@ -317,7 +318,7 @@ plot mplot
   printf &quot;set xlabel '%s' offset 0,1&quot;, xlab
   printf &quot;set ylabel '%s'&quot;, ylab
   literal set y2tics
-  literal set xtics out offset 0,0.7			# Move xtics cloer to the x-axis
+  literal set xtics out offset 0,0.7	# Move xtics closer to the x-axis
   literal set ytics out
   #2) put the border more to the background by applying it
   # only on the left and bottom part and put it and the tics in gray
@@ -337,7 +338,7 @@ set force_decpoint off
 </gretl-function>
 <gretl-function name="strfilt" type="strings" private="1">
  <params count="1">
-  <param name="L" type="list" const="true"/>
+  <param name="L" type="list"/>
  </params>
 <code>/* Get rid of &quot;_&quot; and numbers 1-9  name */
 strings S = array(nelem(L))
@@ -670,7 +671,7 @@ list xlist = inc w
 list rxlist = const time
 list Lall = c xlist rxlist
 
-smpl Lall --no-missing # make sure you don't have any missings
+smpl Lall --no-missing   # avoid missing values
 
 # ARDL parameters
 scalar pqmax = 4
@@ -723,13 +724,13 @@ S[1] = &quot;Y&quot;                  # The endogenous is always named &quot;Y&q
 loop foreach i Lplot -q
     string ylab = &quot;&quot;
     string xlab = &quot;Horizon&quot;
-    # For the endogenous always use &quot;y&quot; irrespetive of the actual name!
+    # For the endogenous always use &quot;y&quot; irrespective of the actual name!
     string shock = S[i]
-    # Plot the bootstrap median and confidence intervall of
+    # Plot the bootstrap median and confidence interval of
     # the response of y on a change in &quot;shock&quot;
     irf_plot(b.DM_@shock, &quot;Shock of @shock on c&quot;, xlab, ylab)
 
-    # Plot ALL bootstrap dynamic multipliersof the response of
+    # Plot ALL bootstrap dynamic multipliers of the response of
     # y on a change in &quot;shock&quot;
     #irf_plot(b.DMraw_@shock)
 endloop
@@ -750,7 +751,7 @@ loop foreach i Lplot -q
     string title = &quot;foo&quot;
     string xlab = &quot;put a x label here&quot;
     string ylab = &quot;put a y label here&quot;
-    # For the endogenous always use &quot;y&quot; irrespetive of the actual name!
+    # For the endogenous always use &quot;y&quot; irrespective of the actual name!
     string shock = S[i]
     irf_plotadv(b.DM_@shock, figpath, title, xlab,ylab, \
       font, lw)

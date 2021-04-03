@@ -14,7 +14,7 @@ list xlist = inc w
 list rxlist = const time
 list Lall = c xlist rxlist
 
-smpl Lall --no-missing # make sure you don't have any missings
+smpl Lall --no-missing   # avoid missing values
 
 # ARDL parameters
 scalar pqmax = 4
@@ -67,13 +67,13 @@ S[1] = "Y"                  # The endogenous is always named "Y"
 loop foreach i Lplot -q
     string ylab = ""
     string xlab = "Horizon"
-    # For the endogenous always use "y" irrespetive of the actual name!
+    # For the endogenous always use "y" irrespective of the actual name!
     string shock = S[i]
-    # Plot the bootstrap median and confidence intervall of
+    # Plot the bootstrap median and confidence interval of
     # the response of y on a change in "shock"
     irf_plot(b.DM_@shock, "Shock of @shock on c", xlab, ylab)
 
-    # Plot ALL bootstrap dynamic multipliersof the response of
+    # Plot ALL bootstrap dynamic multipliers of the response of
     # y on a change in "shock"
     #irf_plot(b.DMraw_@shock)
 endloop
@@ -94,7 +94,7 @@ loop foreach i Lplot -q
     string title = "foo"
     string xlab = "put a x label here"
     string ylab = "put a y label here"
-    # For the endogenous always use "y" irrespetive of the actual name!
+    # For the endogenous always use "y" irrespective of the actual name!
     string shock = S[i]
     irf_plotadv(b.DM_@shock, figpath, title, xlab,ylab, \
       font, lw)
