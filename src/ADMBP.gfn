@@ -13,7 +13,7 @@ pdfdoc:ADMBP.pdf
  <params count="1">
   <param name="b" type="bundleref"/>
  </params>
-<code>/* */
+<code>/* Determine optimal lag-length */
 errorif(b.pq == 1, &quot;You have to set the maximum lag-length pq &gt; 1&quot;)
 series y = b.my
 list xlist = b.mx
@@ -32,7 +32,7 @@ loop i=1..b.pq -q
   endif
 endloop
 matrix b.pq = iminc(mat[,b.crit])
-if b.optsil == &quot;&quot;
+if b.verbose
   printf &quot;\n*** Lag selection based on %d obs. ***\n&quot;, $nobs
   printf &quot;--------------------------------------\n&quot;
   cnameset(mat, &quot;AIC BIC HQ&quot;)
@@ -45,7 +45,7 @@ endif
 </gretl-function>
 <gretl-function name="setARDL" type="bundle">
  <params count="13">
-  <param name="Y" type="series" const="true">
+  <param name="endogenous" type="series" const="true">
 <description>Endogenous in levels</description>
   </param>
   <param name="xlist" type="list">
@@ -84,7 +84,7 @@ endif
   <param name="cilevel" type="scalar" min="0.01" max="0.99" default="0.1">
 <description>Width confidence intervals 1-cilevel</description>
   </param>
-  <param name="verb" type="bool" default="1">
+  <param name="verbose" type="bool" default="1">
 <description>Print details</description>
   </param>
   <param name="failstop" type="scalar" min="0.01" max="0.9" default="0.2">
@@ -102,9 +102,14 @@ if exists(rxlist)
 else
   list rxlist = null
 endif
-list Lall = Y xlist rxlist
-strings b.Sall = strfilt(Lall)
-matrix b.my = {Y}
+list Lall = endogenous xlist rxlist
+scalar nobs = $nobs
+list Lall = endogenous xlist rxlist
+smpl Lall --no-missing
+errorif($nobs &lt; nobs, &quot;Some of your series has missing values. Fix that. Abort.&quot;)
+strings b.names_variables = varnames(Lall)
+b.names_variables[1] = argname(endogenous)
+matrix b.my = {endogenous}
 matrix b.mx = xlist
 matrix b.mrx = rxlist
 b.nx = nelem(xlist)
@@ -120,7 +125,9 @@ b.bootrep = bootrep
 b.horiz = horiz
 b.shocktype = shocktype
 b.failstop = failstop
-string b.optsil = (verb == 1) ? &quot;&quot; : &quot;--quiet&quot;
+b.verbose = verbose
+string b.optsil = (verbose == 1) ? &quot;&quot; : &quot;--quiet&quot;
+scalar b.error = FALSE
 return b
 </code>
 </gretl-function>
@@ -130,23 +137,22 @@ return b
  </params>
 <code>/* Actual estimation part. */
 errorif(inbundle(b, &quot;finset&quot;), &quot;Before calling runARDL() a 2nd time, call setARDL() 1st again.&quot;)
-scalar b.cancel = 0
-series Y = b.my
+series endogenous = b.my
 list xlist = b.mx
 list rxlist = b.mrx
-lags Y xlist
-quiet = b.optsil
-if b.optsil==&quot;&quot;
+lags endogenous
+list lDET = null
+string quiet = b.optsil
+if b.verbose
   ARDLinfo(&amp;b)
 endif
 # TODO: In principle we could provide an user-defined matrix before calling runARDL()
 # This could be helpful if want to provide a gappy coefficient matrix with some
 # zeros or fixed parameters (for whatever reasons).
-list lDET = null
 if b.addDET == 1
   list lDET += const
 endif
-ols Y lDET Y(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist @quiet
+ols endogenous lDET endogenous(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist @quiet
 # Evaluate stability first
 scalar b.ay = b.addDET + 1
 scalar b.ey = b.ay+b.pq-1
@@ -154,14 +160,14 @@ b.ARcoef = $coeff[b.ay:b.ey]
 isstable = is_stable_model(b.ARcoef)
 if !isstable
   print &quot;Error: The model is unstable. Re-specify and try again&quot;
-  b.cancel = 1
+  b.error = TRUE
 endif
-if b.cancel == 0
-  scalar b.ax = b.ey+1
-  scalar b.ex = b.ax + b.nx*(b.condARDL + b.pq)-1
+if b.error == FALSE
+  scalar b.ax = b.ey + 1
+  scalar b.ex = b.ax + b.nx * (b.condARDL + b.pq) - 1
   # Zcoef: Const.~X1(0 to -pq)~...~Xk(0 to -pq)~rxlist (incl. time, dummies etc.)
-  if b.addDET &gt; 0
-    b.Zcoef = $coeff[1:(b.ay-1)] | $coeff[b.ey+1:]	# Deterministics + DL coeff needed for ysim()
+  if b.addDET &gt; 0  # Deterministics + DL coeff needed for ysim()
+    b.Zcoef = $coeff[1:(b.ay-1)] | $coeff[b.ey+1:]
   else
     b.Zcoef = $coeff[b.ey+1:]
   endif
@@ -169,15 +175,15 @@ if b.cancel == 0
   bootARDL(&amp;b)
   # Compute median and confidence intervals of dynamic multipliers for each variable y and xlist.
   # DM_@vname: lower bound ~ median ~ upper bound
-  matrix crit = {b.cilevel/2, 0.5, (1 - b.cilevel/2)}
+  matrix crit = { b.cilevel / 2, 0.5, (1 - b.cilevel / 2) }
   loop i=1..(1+b.nx) -q
-    string vname = b.Sall[$i]
+    string vname = b.names_variables[$i]
     b.DM_@vname = quantile(b.DMraw_@vname', crit)'
   endloop
 else
   # unstable case
   loop i=1..(1+b.nx) -q
-    string vname = b.Sall[$i]
+    string vname = b.names_variables[$i]
     matrix b.DM_@vname = NA
   endloop
 endif
@@ -201,7 +207,7 @@ cnameset(b.RHO, &quot;Mean Median SD&quot;)
 matrix xbetas = b.BHAT_b[,b.ax:b.ex]
 scalar in=1
 loop i=1..(1+b.nx) -q
-  string vname = b.Sall[$i]
+  string vname = b.names_variables[$i]
   if i==1
     matrix b.LRbeta_@vname_b = sumr(ybeta)./(1.-sumr(ybeta))	# long-run multiplier of a change in y on y
   else
@@ -251,22 +257,22 @@ delete b.optsil
 # Case 5: unrestricted constant and unrestricted trend
 # --&gt; ECt = yt - b'x_t
 # TODO: add constant cases!
-series Y = b.my
+series endogenous = b.my
 list xlist = b.mx
 scalar nx = nelem(xlist)
 matrix beta = zeros(nx,1)
 loop i=1..nx -q
-  string vname = b.Sall[1+$i]
+  string vname = b.names_variables[1+$i]
   beta[i] = b.LRbeta_@vname[2]			# based on median value
 endloop
 list LR = xlist
-list lall = Y LR
+list lall = endogenous LR
 matrix X = {lall}
-series b.ECM = Y - lincomb(LR,beta)
+series b.ECM = endogenous - lincomb(LR,beta)
 #setinfo b.ECM --description=&quot;EC unrestricted const. &quot;
 if b.addDET == 1
   scalar a0 = quantile(b.BHAT_b[,1],0.5)	# bootstrap median constant
-  series b.ECMrc = Y - lincomb(LR,beta) - a0/b.RHO[2]	# Case 2
+  series b.ECMrc = endogenous - lincomb(LR,beta) - a0/b.RHO[2]	# Case 2
   #setinfo b.ECMrc --description=&quot;EC restricted const.&quot;
 endif
 </code>
@@ -336,23 +342,6 @@ end plot --output=&quot;@fname&quot;
 set force_decpoint off
 </code>
 </gretl-function>
-<gretl-function name="strfilt" type="strings" private="1">
- <params count="1">
-  <param name="L" type="list"/>
- </params>
-<code>/* Get rid of &quot;_&quot; and numbers 1-9  name */
-strings S = array(nelem(L))
-loop foreach i L -q
-  string s = &quot;$i&quot;
-  s = strsub(s,&quot;_&quot;,&quot;&quot;)
-  loop j=1..9 -q
-    s = strsub(s,&quot;$j&quot;,&quot;&quot;)
-  endloop
-  S[i] = s
-endloop
-return S
-</code>
-</gretl-function>
 <gretl-function name="is_stable_model" type="scalar" private="1">
  <params count="1">
   <param name="ARcoef" type="matrix" const="true"/>
@@ -372,19 +361,18 @@ endif
   <param name="b" type="bundleref"/>
   <param name="e" type="seriesref"/>
  </params>
-<code>/* */
+<code>/* Sample from residuals. */
 series uhat = b.muhat
 #uhat = uhat-mean(uhat)	# FIXME: is re-centering needed here??
 if b.btype == 0
   series e = normal(0,sd(uhat))	# parametric bootstrap
-elif b.btype == 1
-  series e = resample(uhat)		# draw from estimated residuals by resampling (may suffer from serial correl.)
+  elifseries e = resample(uhat)		# draw from estimated residuals by resampling (may suffer from serial correl.)
 elif b.btype == 2						# wild uniform
   series e = resample(uhat) * uniform(0,1)
 elif b.btype == 3				# Use Rademacher distrib. instead of uniform(0,1)
   series Rad = uniform(0,1)
   Rad = -1*(Rad&lt;=0.5) + (Rad&gt;0.5)
-  series e = resample(uhat) * Rad
+  eries e = resample(uhat) * Rad
 elif b.btype == 4						# block bootstrap
   series e = SB(b.muhat)
 endif
@@ -420,12 +408,12 @@ return xx
   <param name="b" type="bundleref"/>
  </params>
 <code>/* */
-series Y = b.my
+series endogenous = b.my
 list xlist = b.mx
 list rxlist = b.mrx
 series uhat = b.muhat
 string quiet = b.optsil
-lags Y xlist
+lags endogenous xlist
 list Z = null
 if b.addDET &gt; 0
   list Z += const
@@ -444,7 +432,7 @@ loop while nloop &lt;= b.bootrep -q
   drawE (&amp;b,&amp;e)
   # Simulate the DGP
   series y_b = zeromiss(0)
-  varsimA(Y, b.ARcoef, Z, Xbeta, e, b.pq, &amp;y_b)
+  varsimA(endogenous, b.ARcoef, Z, Xbeta, e, b.pq, &amp;y_b)
   lags y_b 1
   list ylist_b = y_b(-1 to -b.pq)
   if b.addDET == 1
@@ -483,7 +471,7 @@ loop while nloop &lt;= b.bootrep -q
 endloop
 b.BHAT_b = BHAT_b
 loop i=1..(1+b.nx) -q
-  string vname = b.Sall[$i]
+  string vname = b.names_variables[$i]
   matrix b.DMraw_@vname = mout$i
 endloop
 if failed_bootstrap == 1 &amp;&amp; (quiet != &quot;--quiet&quot;)
@@ -504,9 +492,9 @@ delete b.muhat
 </gretl-function>
 <gretl-function name="varsimA" type="void" private="1">
  <params count="7">
-  <param name="Y" type="series"/>
+  <param name="endogenous" type="series"/>
   <param name="ARbeta" type="matrix">
-<description>Coeff. vector of Y</description>
+<description>Coeff. vector of endogenous</description>
   </param>
   <param name="X" type="list">
 <description>rxlist ~ xlist of exogenous, -pmin to -p</description>
@@ -528,12 +516,12 @@ if p &gt; 1
 else
   matrix A = ARbeta'
 endif
-matrix y0 = mreverse({Y}[1:p])'
+matrix y0 = mreverse({endogenous}[1:p])'
 matrix U = {e + m} ~ zeros(T, p-1)
 matrix S = varsimul(A, U, y0)
 S = S[,1]
 if p &gt; 1
-  S = {Y}[1:p-1] | S
+  S = {endogenous}[1:p-1] | S
 endif
 series ysim = S
 </code>
@@ -586,15 +574,15 @@ printf &quot;\nLong-run multipliers (bootstrap values)\n&quot;
 printf &quot;----------------------------------------------\n&quot;
 printf &quot;                 Mean   Median     S.D.\n&quot;
 loop i=1..(1+b.nx) -q
-  string vname = b.Sall[$i]
-  printf &quot;%10s %10.4f %8.4f %8.4f\n&quot;, b.Sall[$i], b.LRbeta_@vname[1], b.LRbeta_@vname[2], b.LRbeta_@vname[3]
+  string vname = b.names_variables[$i]
+  printf &quot;%10s %10.4f %8.4f %8.4f\n&quot;, b.names_variables[$i], b.LRbeta_@vname[1], b.LRbeta_@vname[2], b.LRbeta_@vname[3]
 endloop
 printf &quot;\nBewley's long-run multipliers (2SLS point estimates)\n&quot;
 printf &quot;----------------------------------------------\n&quot;
 printf &quot;               Coeff.     S.D. \n&quot;
 loop i=2..(1+b.nx) -q
-  string vname = b.Sall[$i]
-  printf &quot;%10s %10.4f %8.4f\n&quot;, b.Sall[$i], b.LRBew[i-1], b.LRBewSE[i-1]
+  string vname = b.names_variables[$i]
+  printf &quot;%10s %10.4f %8.4f\n&quot;, b.names_variables[$i], b.LRBew[i-1], b.LRBewSE[i-1]
 endloop
 printf &quot;******************************************\n&quot;
 </code>
@@ -604,12 +592,12 @@ printf &quot;******************************************\n&quot;
   <param name="b" type="bundleref"/>
  </params>
 <code>/* Estimate the long-run multiplier and associated S.E. using the IV approach by Bewley (1979) */
-series Y = b.my
-series dY = diff(Y)
+series endogenous = b.my
+series dY = diff(endogenous)
 list xlist = b.mx
 list Dxlist = diff(xlist)
 list rxlist = b.mrx
-lags Y xlist
+lags endogenous xlist
 if b.optsil == &quot;&quot;
   ARDLinfo(&amp;b)
 endif
@@ -622,10 +610,10 @@ endif
 #-------------
 # Set the instruments
 pqmin = b.pqmin
-list inst = lDET Y(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
+list inst = lDET endogenous(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
 # IV 2SLS
 list all = lDET xlist dY(0 to -(b.pq+1)) Dxlist(0 to -(b.pq+1)) rxlist
-tsls Y lDET xlist dY(b.pqmin to -(b.pq-1)) Dxlist(b.pqmin to -(b.pq-1)) rxlist ; inst --robust --quiet
+tsls endogenous lDET xlist dY(b.pqmin to -(b.pq-1)) Dxlist(b.pqmin to -(b.pq-1)) rxlist ; inst --robust --quiet
 scalar nx = nelem(xlist)
 scalar ax = 1+nelem(lDET)
 scalar ex = ax+nx-1
@@ -689,6 +677,7 @@ scalar shocktype = 1
 #------------------------
 bundle b = setARDL(c, xlist, rxlist, pqmax, infocrit,\
     condARDL, shocktype, btype, bootrep, horiz, cilevel)
+printf &quot;\nError status = %d.\n&quot;, b.error
 
 # Determine the optimal lag length (optional)
 lagselect(&amp;b)
@@ -696,6 +685,8 @@ lagselect(&amp;b)
 # Compute bootstrap dynamic multipliers
 runARDL(&amp;b)
 print b
+printf &quot;\nError status = %d.\n&quot;, b.error
+
 
 # Compute bootstrap error-correction coeff. +
 # long-run multipliers based on ARDL
@@ -711,50 +702,45 @@ series ECM = b.ECM		# unrestricted constant
 series ECMrc = b.ECMrc	# restricted const.
 gnuplot ECM ECMrc --time-series --with-lines --output=display
 
-
 # Plot multipliers
 list Lplot = Lall - rxlist
+irf_plot(b.DM_inc, &quot;Reponse of c to shock in inc&quot;, &quot;Horizon&quot;, &quot;Response&quot;)
 
-irf_plot(b.DM_inc, &quot;Shock of inc on c&quot;, &quot;Horizon&quot;, &quot;Response&quot;)
 
 /* Activate if wished
-strings S = varnames(Lplot)
-S[1] = &quot;Y&quot;                  # The endogenous is always named &quot;Y&quot;
-
+strings names_variables = varnames(Lplot)
 loop foreach i Lplot -q
     string ylab = &quot;&quot;
     string xlab = &quot;Horizon&quot;
     # For the endogenous always use &quot;y&quot; irrespective of the actual name!
-    string shock = S[i]
+    string shock = names_variables[i]
     # Plot the bootstrap median and confidence interval of
     # the response of y on a change in &quot;shock&quot;
-    irf_plot(b.DM_@shock, &quot;Shock of @shock on c&quot;, xlab, ylab)
+    irf_plot(b[&quot;DM_@shock&quot;], &quot;Shock of @shock on c&quot;, xlab, ylab)
 
     # Plot ALL bootstrap dynamic multipliers of the response of
     # y on a change in &quot;shock&quot;
-    #irf_plot(b.DMraw_@shock)
+    #irf_plot(b[&quot;DMraw_@shock&quot;])
 endloop
-*/
+#*/
+
 
 /* Activate if wished
 #-----------------------------------------------------
 # Plot multipliers with additional options for drawing
-# Save as *.pdf
 #-----------------------------------------------------
-strings S = varnames(Lplot)
-S[1] = &quot;Y&quot;                  # The endogenous is always named &quot;Y&quot;
-
+strings names_variables = varnames(Lplot)
 scalar font = 11
 scalar lw = 2.0
 loop foreach i Lplot -q
     string figpath = &quot;irf_$i.png&quot;
-    string title = &quot;foo&quot;
+    string title = sprintf(&quot;Response of %s to shock in %s&quot;,\
+            varnames(Lplot)[1], varnames(Lplot)[i])
     string xlab = &quot;put a x label here&quot;
     string ylab = &quot;put a y label here&quot;
-    # For the endogenous always use &quot;y&quot; irrespective of the actual name!
-    string shock = S[i]
-    irf_plotadv(b.DM_@shock, figpath, title, xlab,ylab, \
-      font, lw)
+
+    string shock = names_variables[i]
+    irf_plotadv(b[&quot;DM_@shock&quot;], figpath, title, xlab, ylab, font, lw)
 endloop
 */
 </sample-script>
