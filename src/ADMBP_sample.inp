@@ -18,7 +18,7 @@ smpl Lall --no-missing   # avoid missing values
 
 # ARDL parameters
 scalar pqmax = 4
-scalar condARDL = 1
+scalar condARDL = TRUE
 scalar infocrit = 1
 # Bootstrap and confidence interval parameters
 scalar horiz = 40
@@ -39,7 +39,7 @@ lagselect(&b)
 
 # Compute bootstrap dynamic multipliers
 runARDL(&b)
-print b
+# print b
 printf "\nError status = %d.\n", b.error
 
 
@@ -59,7 +59,7 @@ gnuplot ECM ECMrc --time-series --with-lines --output=display
 
 # Plot multipliers
 list Lplot = Lall - rxlist
-irf_plot(b.DM_inc, "Reponse of c to shock in inc", "Horizon", "Response")
+irf_plot(b.DM_inc, "Response of c to shock in inc", "Horizon", "Response")
 
 
 /* Activate if wished
@@ -77,7 +77,7 @@ loop foreach i Lplot -q
     # y on a change in "shock"
     #irf_plot(b["DMraw_@shock"])
 endloop
-#*/
+*/
 
 
 /* Activate if wished

@@ -9,19 +9,21 @@
 <help>
 pdfdoc:ADMBP.pdf
 </help>
+<depends count="1">
+SB </depends>
 <gretl-function name="lagselect" type="void">
  <params count="1">
   <param name="b" type="bundleref"/>
  </params>
 <code>/* Determine optimal lag-length */
-errorif(b.pq == 1, &quot;You have to set the maximum lag-length pq &gt; 1&quot;)
+errorif(b.pq == 1, &quot;You have to set the maximum lag-length 'pq' &gt; 1.&quot;)
 series y = b.my
 list xlist = b.mx
 list rxlist = b.mrx
 lags xlist
 smpl +b.pq ;
 matrix mat = zeros(b.pq,3)
-rnam = sprintf(&quot;%2.0f &quot;, seq(1, b.pq))
+row_labels = sprintf(&quot;%2.0f &quot;, seq(1, b.pq))
 loop i=1..b.pq -q
   list Lx = xlist(b.pqmin to -$i) rxlist
   catch var $i y ; Lx --silent
@@ -32,11 +34,13 @@ loop i=1..b.pq -q
   endif
 endloop
 matrix b.pq = iminc(mat[,b.crit])
+cnameset(b.pq, &quot;AIC BIC HQ&quot;)
+rnameset(b.pq, row_labels)
 if b.verbose
   printf &quot;\n*** Lag selection based on %d obs. ***\n&quot;, $nobs
   printf &quot;--------------------------------------\n&quot;
   cnameset(mat, &quot;AIC BIC HQ&quot;)
-  rnameset(mat, rnam)
+  rnameset(mat, row_labels)
   printf &quot;%12.4f\n&quot;, mat
   printf &quot;The selected information criteria suggests an ARDL(%d,%d) in levels.\n&quot;, b.pq, b.pq
   printf &quot;\n&quot;
@@ -136,7 +140,7 @@ return b
   <param name="b" type="bundleref"/>
  </params>
 <code>/* Actual estimation part. */
-errorif(inbundle(b, &quot;finset&quot;), &quot;Before calling runARDL() a 2nd time, call setARDL() 1st again.&quot;)
+errorif(inbundle(b, &quot;finset&quot;), &quot;Before calling runARDL() a second time, call setARDL() first again.&quot;)
 series endogenous = b.my
 list xlist = b.mx
 list rxlist = b.mrx
@@ -181,7 +185,6 @@ if b.error == FALSE
     b.DM_@vname = quantile(b.DMraw_@vname', crit)'
   endloop
 else
-  # unstable case
   loop i=1..(1+b.nx) -q
     string vname = b.names_variables[$i]
     matrix b.DM_@vname = NA
@@ -194,31 +197,30 @@ b.finset = 1
  <params count="1">
   <param name="b" type="bundleref"/>
  </params>
-<code># Transform the ARDL level model coefficients in order
-# to obtain the the error-correction coeff. &quot;rho&quot;, the long-run
-# multipliers (median bootstrap values) and its bootstrap S.D.
+<code>/* Transform the ARDL level model coefficients in order to obtain the the error-correction coeff. &quot;rho&quot;, the long-run multipliers (median bootstrap values) and its bootstrap S.D. */
 # RHO = -[1-SUM_j=1^pq a_{t-j}]
 matrix ybeta = b.BHAT_b[,b.ay:b.ey]
 matrix b.RHO_b = -(1-sumr(ybeta))
 matrix b.RHO = meanc(b.RHO_b) ~ quantile(b.RHO_b,0.5) ~ sd(b.RHO_b)
 cnameset(b.RHO, &quot;Mean Median SD&quot;)
 # Long-run multiplier
-# b_i = (SUM_j=0^pq c_{t-j})/(1-rho)
+# b_i = (SUM_j=0^pq c_{t-j}) / (1 - rho)
 matrix xbetas = b.BHAT_b[,b.ax:b.ex]
-scalar in=1
+scalar in = 1
 loop i=1..(1+b.nx) -q
   string vname = b.names_variables[$i]
-  if i==1
-    matrix b.LRbeta_@vname_b = sumr(ybeta)./(1.-sumr(ybeta))	# long-run multiplier of a change in y on y
+  if i == 1
+    # long-run multiplier of a change in y on y
+    matrix b[&quot;LRbeta_@vname_b&quot;] = sumr(ybeta) ./ (1 .- sumr(ybeta))
   else
-    out=in+(b.condARDL+b.pq)-1
+    out = in + (b.condARDL + b.pq) - 1
     cmat = xbetas[,in:out]
     # long-run multiplier of a change in x_i on y
-    b.LRbeta_@vname_b = sumr(cmat)./(1.-sumr(ybeta))
-    in=in+(b.condARDL+b.pq)
+    b[&quot;LRbeta_@vname_b&quot;] = sumr(cmat) ./ (1 .- sumr(ybeta))
+    in += b.condARDL + b.pq
   endif
-  matrix b.LRbeta_@vname = mean(b.LRbeta_@vname_b) ~ quantile(b.LRbeta_@vname_b,0.5) ~ sd(b.LRbeta_@vname_b)
-  cnameset(b.LRbeta_@vname, &quot;Mean Median SD&quot;)
+  matrix b[&quot;LRbeta_@vname&quot;] = mean(b[&quot;LRbeta_@vname_b&quot;]) ~ quantile(b[&quot;LRbeta_@vname_b&quot;], 0.5) ~ sd(b[&quot;LRbeta_@vname_b&quot;])
+  cnameset(b[&quot;LRbeta_@vname&quot;], &quot;Mean Median SD&quot;)
 endloop
 # Compute LR coeff and SEs using Bewley's IV estim.
 Bewley(&amp;b)
@@ -260,10 +262,10 @@ delete b.optsil
 series endogenous = b.my
 list xlist = b.mx
 scalar nx = nelem(xlist)
-matrix beta = zeros(nx,1)
+matrix beta = zeros(nx, 1)
 loop i=1..nx -q
   string vname = b.names_variables[1+$i]
-  beta[i] = b.LRbeta_@vname[2]			# based on median value
+  beta[i] = b.LRbeta_@vname[2]		# based on median value
 endloop
 list LR = xlist
 list lall = endogenous LR
@@ -271,8 +273,8 @@ matrix X = {lall}
 series b.ECM = endogenous - lincomb(LR,beta)
 #setinfo b.ECM --description=&quot;EC unrestricted const. &quot;
 if b.addDET == 1
-  scalar a0 = quantile(b.BHAT_b[,1],0.5)	# bootstrap median constant
-  series b.ECMrc = endogenous - lincomb(LR,beta) - a0/b.RHO[2]	# Case 2
+  scalar a0 = quantile(b.BHAT_b[,1], 0.5)	 # bootstrap median constant
+  series b.ECMrc = endogenous - lincomb(LR,beta) - a0 / b.RHO[2]	# Case 2
   #setinfo b.ECMrc --description=&quot;EC restricted const.&quot;
 endif
 </code>
@@ -284,7 +286,7 @@ endif
   <param name="xlab" type="string" const="true"/>
   <param name="ylab" type="string" const="true"/>
  </params>
-<code>/* */
+<code>/* Plot dynamic multipliers. */
 set force_decpoint on
 plot m
   option single-yaxis
@@ -293,9 +295,9 @@ plot m
   literal set linetype 2 lc rgb 'black' lw 2
   literal set linetype 3 lc rgb 'grey' dt 2 lw 1.5
   literal set nokey
-  printf &quot;set title '%s'&quot;, title
-  printf &quot;set xlabel '%s'&quot;, xlab
-  printf &quot;set ylabel '%s'&quot;, ylab
+  printf &quot;set title \&quot;%s\&quot;&quot;, title
+  printf &quot;set xlabel \&quot;%s\&quot;&quot;, xlab
+  printf &quot;set ylabel \&quot;%s\&quot;&quot;, ylab
 end plot --output=display
 set force_decpoint off
 </code>
@@ -320,9 +322,9 @@ set force_decpoint on
 plot mplot
   options with-lines time-series single-yaxis #@fontopt
   literal set nokey
-  printf &quot;set title '%s'&quot;, title
-  printf &quot;set xlabel '%s' offset 0,1&quot;, xlab
-  printf &quot;set ylabel '%s'&quot;, ylab
+  printf &quot;set title \&quot;%s\&quot;&quot;, title
+  printf &quot;set xlabel \&quot;%s\&quot; offset 0,1&quot;, xlab
+  printf &quot;set ylabel \&quot;%s\&quot;&quot;, ylab
   literal set y2tics
   literal set xtics out offset 0,0.7	# Move xtics closer to the x-axis
   literal set ytics out
@@ -358,49 +360,24 @@ endif
 </gretl-function>
 <gretl-function name="drawE" type="void" private="1">
  <params count="2">
-  <param name="b" type="bundleref"/>
+  <param name="b" type="bundle" const="true"/>
   <param name="e" type="seriesref"/>
  </params>
 <code>/* Sample from residuals. */
 series uhat = b.muhat
 #uhat = uhat-mean(uhat)	# FIXME: is re-centering needed here??
 if b.btype == 0
-  series e = normal(0,sd(uhat))	# parametric bootstrap
+  series e = normal(0, sd(uhat))	# parametric bootstrap
   elifseries e = resample(uhat)		# draw from estimated residuals by resampling (may suffer from serial correl.)
 elif b.btype == 2						# wild uniform
   series e = resample(uhat) * uniform(0,1)
-elif b.btype == 3				# Use Rademacher distrib. instead of uniform(0,1)
+elif b.btype == 3	# Use Rademacher distrib. instead of uniform(0,1)
   series Rad = uniform(0,1)
-  Rad = -1*(Rad&lt;=0.5) + (Rad&gt;0.5)
-  eries e = resample(uhat) * Rad
+  Rad = -1 * (Rad &lt;= 0.5) + (Rad &gt; 0.5)
+  series e = resample(uhat) * Rad
 elif b.btype == 4						# block bootstrap
-  series e = SB(b.muhat)
+  series e = SB(b.muhat, null, null)
 endif
-</code>
-</gretl-function>
-<gretl-function name="SB" type="series" private="1">
- <params count="1">
-  <param name="x" type="matrix"/>
- </params>
-<code>/* */
-#matrix x &quot;Data to be resampled&quot;
-# FIXME: should x be the de-meaned residuals??
-scalar n = rows(x)
-errorif(n == 0, &quot;Data input error, check your data.&quot;)
-b = round(1.75*(n^(1/3)))	# mean block size to rule-of-thumb value
-p = 1/b   					# probability of a new run
-s = seq(1,n)'              	# sequence
-u = 1 | (muniform(n-1,1) .&lt; p) # run starts
-r = cum(u)                     # id of each run
-nr = r[n]                      # how many runs ?
-sub = selifr(r ~ s, u)         # starting row for each run
-sub[,2] -= mrandgen(i, 1, n, nr, 1) # adjust starting points
-# --- create mini-trends ----------------
-s -= replace(r, sub[,1], sub[,2])
-# roll over if necessary
-s = ((s-1)%n) + 1
-series xx = x[s,]
-return xx
 </code>
 </gretl-function>
 <gretl-function name="bootARDL" type="void" private="1">
@@ -429,17 +406,17 @@ scalar failed = 0
 scalar failed_bootstrap = 0
 loop while nloop &lt;= b.bootrep -q
   series e = 0
-  drawE (&amp;b,&amp;e)
-  # Simulate the DGP
-  series y_b = zeromiss(0)
+  drawE(b,&amp;e)
+  series y_b = NA
   varsimA(endogenous, b.ARcoef, Z, Xbeta, e, b.pq, &amp;y_b)
   lags y_b 1
   list ylist_b = y_b(-1 to -b.pq)
+  list features = null
   if b.addDET == 1
-    ols y_b const ylist_b xlist(b.pqmin to -b.pq) rxlist --quiet
-  else
-    ols y_b ylist_b xlist(b.pqmin to -b.pq) rxlist --quiet
+    features += const
   endif
+  features += ylist_b xlist(b.pqmin to -b.pq) rxlist
+  ols y_b features --quiet
   if nloop == 1
     matrix BHAT_b = zeros(b.bootrep,nelem($xlist))
   endif
@@ -458,8 +435,9 @@ loop while nloop &lt;= b.bootrep -q
     shockbeta = $coeff[b.ax:b.ex]
     shockbeta = mshape(shockbeta, (b.condARDL + b.pq), b.nx)
     loop i=1..(1+b.nx) -q
-      matrix mtmp = zeros(b.horiz,1)
-      if i == 1		# response of y to a shock in y
+      matrix mtmp = zeros(b.horiz, 1)
+      if i == 1
+        # response of endogenous to a shock in endogenous
         dmfilt(ARcoef_b, ARcoef_b, b.horiz, b.shocktype, &amp;mtmp)
       else		# response of y to a shock in x_i
         dmfilt(ARcoef_b, shockbeta[,i-1], b.horiz, b.shocktype, &amp;mtmp)
@@ -492,36 +470,37 @@ delete b.muhat
 </gretl-function>
 <gretl-function name="varsimA" type="void" private="1">
  <params count="7">
-  <param name="endogenous" type="series"/>
+  <param name="endogenous" type="series" const="true"/>
   <param name="ARbeta" type="matrix">
 <description>Coeff. vector of endogenous</description>
   </param>
-  <param name="X" type="list">
+  <param name="X" type="list" const="true">
 <description>rxlist ~ xlist of exogenous, -pmin to -p</description>
   </param>
-  <param name="Xbeta" type="matrix">
+  <param name="Xbeta" type="matrix" const="true">
 <description>coeff vector of Xs</description>
   </param>
-  <param name="e" type="series">
+  <param name="e" type="series" const="true">
 <description>resampled</description>
   </param>
   <param name="p" type="int"/>
   <param name="ysim" type="seriesref"/>
  </params>
-<code>/* # Thankfully borrowed from Jack! */
+<code>/* Simulate VAR. Thankfully borrowed from Jack. */
+matrix my = {endogenous}
 series m = lincomb(X, Xbeta)
-scalar T = minr(rows({e})~rows({m}))
+scalar T = minr(rows({e}) ~ rows({m}))
 if p &gt; 1
   matrix A = ARbeta' | (I(p-1) ~ 0)
 else
   matrix A = ARbeta'
 endif
-matrix y0 = mreverse({endogenous}[1:p])'
+matrix y0 = mreverse(my[1:p])'
 matrix U = {e + m} ~ zeros(T, p-1)
 matrix S = varsimul(A, U, y0)
 S = S[,1]
 if p &gt; 1
-  S = {endogenous}[1:p-1] | S
+  S = my[1:p-1] | S
 endif
 series ysim = S
 </code>
@@ -535,11 +514,7 @@ printf &quot;\n******************************************\n&quot;
 printf &quot;*** ARDL (%d) in levels regression       ***\n&quot;, b.pq
 printf &quot;******************************************\n&quot;
 printf &quot;\nSettings for dynamic multiplier computation\n&quot;
-if b.shocktype == 0
-  string stype = &quot;temporary&quot;
-else
-  string stype = &quot;permanent&quot;
-endif
+string stype = (b.shocktype == 0) ? &quot;temporary&quot; : &quot;permanent&quot;
 printf &quot;\nShock type: %s\n&quot;, stype
 printf &quot;Bootstrap iterations: %d\n&quot;, b.bootrep
 if b.btype == 0
@@ -554,7 +529,7 @@ elif b.btype == 4
   string btype = &quot;block-bootstrap&quot;
 endif
 printf &quot;Bootstrap type: %s\n&quot;, btype
-printf &quot;Confidence interval: %.2f\n&quot;, (1-b.cilevel)
+printf &quot;Confidence interval: %.2f\n&quot;, (1 - b.cilevel)
 </code>
 </gretl-function>
 <gretl-function name="ECMinfo" type="void" private="1">
@@ -603,24 +578,18 @@ if b.optsil == &quot;&quot;
 endif
 list lDET = null
 if b.addDET==1
-  lDET+=const
+  lDET += const
 endif
-#-------------
-# Bewley(1979)
-#-------------
 # Set the instruments
-pqmin = b.pqmin
-list inst = lDET endogenous(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
+max_lag = 5 * b.pq  # somehow arbitrary choice...
+list inst = lDET endogenous(-1 to -max_lag) xlist(b.pqmin to -max_lag) rxlist
 # IV 2SLS
-list all = lDET xlist dY(0 to -(b.pq+1)) Dxlist(0 to -(b.pq+1)) rxlist
-tsls endogenous lDET xlist dY(b.pqmin to -(b.pq-1)) Dxlist(b.pqmin to -(b.pq-1)) rxlist ; inst --robust --quiet
-scalar nx = nelem(xlist)
-scalar ax = 1+nelem(lDET)
-scalar ex = ax+nx-1
-matrix LRBew = $coeff[ax:ex]
-matrix LRBewSE = $stderr[ax:ex]
-b.LRBew = LRBew
-b.LRBewSE = LRBewSE
+list indepvars = lDET xlist dY(0 to -(b.pq+1)) Dxlist(0 to -(b.pq+1)) rxlist
+tsls endogenous indepvars ; inst --robust --quiet
+scalar ax = 1 + nelem(lDET)
+scalar ex = ax + nelem(xlist) - 1
+matrix b.LRBew = $coeff[ax:ex]
+matrix b.LRBewSE = $stderr[ax:ex]
 </code>
 </gretl-function>
 <gretl-function name="dmfilt" type="void" private="1">
@@ -631,15 +600,11 @@ b.LRBewSE = LRBewSE
   <param name="shocktype" type="int"/>
   <param name="DM" type="matrixref"/>
  </params>
-<code>/* */
+<code>/* Compute dynamic multipliers. */
 matrix impulse = ones(horiz + 1, 2)
 impulse[2:,1] = 0
 DM = filter(impulse, ycoef, ARcoef)
-if shocktype == 0
-  DM = DM[,1]
-elif shocktype == 1
-  DM = DM[,2]
-endif
+DM = (shocktype == 0) ? DM[,1] : DM[,2]
 </code>
 </gretl-function>
 <sample-script>
@@ -663,7 +628,7 @@ smpl Lall --no-missing   # avoid missing values
 
 # ARDL parameters
 scalar pqmax = 4
-scalar condARDL = 1
+scalar condARDL = TRUE
 scalar infocrit = 1
 # Bootstrap and confidence interval parameters
 scalar horiz = 40
@@ -684,7 +649,7 @@ lagselect(&amp;b)
 
 # Compute bootstrap dynamic multipliers
 runARDL(&amp;b)
-print b
+# print b
 printf &quot;\nError status = %d.\n&quot;, b.error
 
 
@@ -704,7 +669,7 @@ gnuplot ECM ECMrc --time-series --with-lines --output=display
 
 # Plot multipliers
 list Lplot = Lall - rxlist
-irf_plot(b.DM_inc, &quot;Reponse of c to shock in inc&quot;, &quot;Horizon&quot;, &quot;Response&quot;)
+irf_plot(b.DM_inc, &quot;Response of c to shock in inc&quot;, &quot;Horizon&quot;, &quot;Response&quot;)
 
 
 /* Activate if wished
@@ -722,7 +687,7 @@ loop foreach i Lplot -q
     # y on a change in &quot;shock&quot;
     #irf_plot(b[&quot;DMraw_@shock&quot;])
 endloop
-#*/
+*/
 
 
 /* Activate if wished
