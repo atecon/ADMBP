@@ -239,17 +239,19 @@ function void bootARDL (bundle *b)
         series e = 0
         drawE(b,&e)
 
-        # Simulate the DGP
-        series y_b = zeromiss(0)
+        series y_b = NA
         varsimA(endogenous, b.ARcoef, Z, Xbeta, e, b.pq, &y_b)
 
         lags y_b 1
         list ylist_b = y_b(-1 to -b.pq)
+
+        list features = null
         if b.addDET == 1
-            ols y_b const ylist_b xlist(b.pqmin to -b.pq) rxlist --quiet
-        else
-            ols y_b ylist_b xlist(b.pqmin to -b.pq) rxlist --quiet
+            features += const
         endif
+        features += ylist_b xlist(b.pqmin to -b.pq) rxlist
+
+        ols y_b features --quiet
 
         if nloop == 1
             matrix BHAT_b = zeros(b.bootrep,nelem($xlist))
@@ -272,8 +274,9 @@ function void bootARDL (bundle *b)
             shockbeta = mshape(shockbeta, (b.condARDL + b.pq), b.nx)
 
             loop i=1..(1+b.nx) -q
-                matrix mtmp = zeros(b.horiz,1)
-                if i == 1		# response of y to a shock in y
+                matrix mtmp = zeros(b.horiz, 1)
+                if i == 1
+                    # response of endogenous to a shock in endogenous
                     dmfilt(ARcoef_b, ARcoef_b, b.horiz, b.shocktype, &mtmp)
                 else		# response of y to a shock in x_i
                     dmfilt(ARcoef_b, shockbeta[,i-1], b.horiz, b.shocktype, &mtmp)
@@ -281,6 +284,7 @@ function void bootARDL (bundle *b)
 
                 mout$i[,nloop] = mtmp
             endloop
+
             nloop++
         endif
     endloop
@@ -310,30 +314,32 @@ function void bootARDL (bundle *b)
 end function
 
 
-function void varsimA (series endogenous,
+function void varsimA (const series endogenous,
                        matrix ARbeta "Coeff. vector of endogenous",
-                       list X "rxlist ~ xlist of exogenous, -pmin to -p",
-                       matrix Xbeta "coeff vector of Xs",
-                       series e "resampled",
+                       const list X "rxlist ~ xlist of exogenous, -pmin to -p",
+                       const matrix Xbeta "coeff vector of Xs",
+                       const series e "resampled",
                        int p,
                        series *ysim)
-    /* # Thankfully borrowed from Jack! */
+    /* Simulate VAR. Thankfully borrowed from Jack. */
+
+    matrix my = {endogenous}
 
     series m = lincomb(X, Xbeta)
-    scalar T = minr(rows({e})~rows({m}))
+    scalar T = minr(rows({e}) ~ rows({m}))
     if p > 1
         matrix A = ARbeta' | (I(p-1) ~ 0)
     else
         matrix A = ARbeta'
     endif
 
-    matrix y0 = mreverse({endogenous}[1:p])'
+    matrix y0 = mreverse(my[1:p])'
     matrix U = {e + m} ~ zeros(T, p-1)
     matrix S = varsimul(A, U, y0)
     S = S[,1]
 
     if p > 1
-        S = {endogenous}[1:p-1] | S
+        S = my[1:p-1] | S
     endif
 
     series ysim = S
@@ -348,11 +354,7 @@ function void ARDLinfo (bundle *b)
     printf "******************************************\n"
     printf "\nSettings for dynamic multiplier computation\n"
 
-    if b.shocktype == 0
-        string stype = "temporary"
-    else
-        string stype = "permanent"
-    endif
+    string stype = (b.shocktype == 0) ? "temporary" : "permanent"
 
     printf "\nShock type: %s\n", stype
     printf "Bootstrap iterations: %d\n", b.bootrep
@@ -370,7 +372,7 @@ function void ARDLinfo (bundle *b)
     endif
 
     printf "Bootstrap type: %s\n", btype
-    printf "Confidence interval: %.2f\n", (1-b.cilevel)
+    printf "Confidence interval: %.2f\n", (1 - b.cilevel)
 end function
 
 
@@ -390,8 +392,8 @@ function void ECMinfo (bundle *b)
     printf "                 Mean   Median     S.D.\n"
     loop i=1..(1+b.nx) -q
         string vname = b.names_variables[$i]
-        printf "%10s %10.4f %8.4f %8.4f\n", b.names_variables[$i],
-    b.LRbeta_@vname[1], b.LRbeta_@vname[2], b.LRbeta_@vname[3]
+        printf "%10s %10.4f %8.4f %8.4f\n", b.names_variables[$i],\
+            b.LRbeta_@vname[1], b.LRbeta_@vname[2], b.LRbeta_@vname[3]
     endloop
 
     printf "\nBewley's long-run multipliers (2SLS point estimates)\n"
@@ -399,16 +401,15 @@ function void ECMinfo (bundle *b)
     printf "               Coeff.     S.D. \n"
     loop i=2..(1+b.nx) -q
         string vname = b.names_variables[$i]
-        printf "%10s %10.4f %8.4f\n", b.names_variables[$i], b.LRBew[i-1], b.LRBewSE[i-1]
+        printf "%10s %10.4f %8.4f\n", b.names_variables[$i],\
+            b.LRBew[i-1], b.LRBewSE[i-1]
     endloop
     printf "******************************************\n"
 end function
 
 
 function void LRbeta(bundle *b)
-    # Transform the ARDL level model coefficients in order
-    # to obtain the the error-correction coeff. "rho", the long-run
-    # multipliers (median bootstrap values) and its bootstrap S.D.
+    /* Transform the ARDL level model coefficients in order to obtain the the error-correction coeff. "rho", the long-run multipliers (median bootstrap values) and its bootstrap S.D. */
 
     # RHO = -[1-SUM_j=1^pq a_{t-j}]
     matrix ybeta = b.BHAT_b[,b.ay:b.ey]
@@ -417,24 +418,28 @@ function void LRbeta(bundle *b)
     cnameset(b.RHO, "Mean Median SD")
 
     # Long-run multiplier
-    # b_i = (SUM_j=0^pq c_{t-j})/(1-rho)
+    # b_i = (SUM_j=0^pq c_{t-j}) / (1 - rho)
     matrix xbetas = b.BHAT_b[,b.ax:b.ex]
-    scalar in=1
+    scalar in = 1
 
     loop i=1..(1+b.nx) -q
         string vname = b.names_variables[$i]
-        if i==1
-            matrix b.LRbeta_@vname_b = sumr(ybeta)./(1.-sumr(ybeta))	# long-run multiplier of a change in y on y
+        if i == 1
+            # long-run multiplier of a change in y on y
+            matrix b["LRbeta_@vname_b"] = sumr(ybeta) ./ (1 .- sumr(ybeta))
         else
-            out=in+(b.condARDL+b.pq)-1
+            out = in + (b.condARDL + b.pq) - 1
             cmat = xbetas[,in:out]
+
             # long-run multiplier of a change in x_i on y
-            b.LRbeta_@vname_b = sumr(cmat)./(1.-sumr(ybeta))
-            in=in+(b.condARDL+b.pq)
+            b["LRbeta_@vname_b"] = sumr(cmat) ./ (1 .- sumr(ybeta))
+            in += b.condARDL + b.pq
         endif
-        matrix b.LRbeta_@vname = mean(b.LRbeta_@vname_b) ~ \
-            quantile(b.LRbeta_@vname_b,0.5) ~ sd(b.LRbeta_@vname_b)
-        cnameset(b.LRbeta_@vname, "Mean Median SD")
+
+        matrix b["LRbeta_@vname"] = mean(b["LRbeta_@vname_b"]) ~ \
+                                    quantile(b["LRbeta_@vname_b"], 0.5) ~ \
+                                    sd(b["LRbeta_@vname_b"])
+        cnameset(b["LRbeta_@vname"], "Mean Median SD")
     endloop
 
     # Compute LR coeff and SEs using Bewley's IV estim.
@@ -457,6 +462,7 @@ function void LRbeta(bundle *b)
      delete b.optsil
 end function
 
+
 function void Bewley(bundle *b)
     /* Estimate the long-run multiplier and associated S.E. using the IV approach by Bewley (1979) */
 
@@ -474,27 +480,23 @@ function void Bewley(bundle *b)
 
     list lDET = null
     if b.addDET==1
-        lDET+=const
+        lDET += const
     endif
 
-    #-------------
-    # Bewley(1979)
-    #-------------
     # Set the instruments
-    pqmin = b.pqmin
-    list inst = lDET endogenous(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
-    # IV 2SLS
-    list all = lDET xlist dY(0 to -(b.pq+1)) Dxlist(0 to -(b.pq+1)) rxlist
-    tsls endogenous lDET xlist dY(b.pqmin to -(b.pq-1)) Dxlist(b.pqmin to -(b.pq-1)) rxlist ; inst --robust --quiet
+    max_lag = 5 * b.pq  # somehow arbitrary choice...
+    list inst = lDET endogenous(-1 to -max_lag) xlist(b.pqmin to -max_lag) rxlist
 
-    scalar nx = nelem(xlist)
-    scalar ax = 1+nelem(lDET)
-    scalar ex = ax+nx-1
-    matrix LRBew = $coeff[ax:ex]
-    matrix LRBewSE = $stderr[ax:ex]
-    b.LRBew = LRBew
-    b.LRBewSE = LRBewSE
-end function
+    # IV 2SLS
+    list indepvars = lDET xlist dY(0 to -(b.pq+1)) Dxlist(0 to -(b.pq+1)) rxlist
+
+    tsls endogenous indepvars ; inst --robust --quiet
+
+    scalar ax = 1 + nelem(lDET)
+    scalar ex = ax + nelem(xlist) - 1
+    matrix b.LRBew = $coeff[ax:ex]
+    matrix b.LRBewSE = $stderr[ax:ex]
+ end function
 
 
 function void ECterm(bundle *b)
@@ -517,19 +519,23 @@ function void ECterm(bundle *b)
     series endogenous = b.my
     list xlist = b.mx
     scalar nx = nelem(xlist)
-    matrix beta = zeros(nx,1)
+    matrix beta = zeros(nx, 1)
+
     loop i=1..nx -q
         string vname = b.names_variables[1+$i]
-        beta[i] = b.LRbeta_@vname[2]			# based on median value
+        beta[i] = b.LRbeta_@vname[2]		# based on median value
     endloop
+
     list LR = xlist
     list lall = endogenous LR
     matrix X = {lall}
     series b.ECM = endogenous - lincomb(LR,beta)
+
     #setinfo b.ECM --description="EC unrestricted const. "
+
     if b.addDET == 1
-        scalar a0 = quantile(b.BHAT_b[,1],0.5)	# bootstrap median constant
-        series b.ECMrc = endogenous - lincomb(LR,beta) - a0/b.RHO[2]	# Case 2
+        scalar a0 = quantile(b.BHAT_b[,1], 0.5)	 # bootstrap median constant
+        series b.ECMrc = endogenous - lincomb(LR,beta) - a0 / b.RHO[2]	# Case 2
         #setinfo b.ECMrc --description="EC restricted const."
     endif
 end function
@@ -540,16 +546,13 @@ function void dmfilt (const matrix ARcoef,
                       int horiz,
                       int shocktype,
                       matrix *DM)
-    /* */
+    /* Compute dynamic multipliers. */
 
     matrix impulse = ones(horiz + 1, 2)
     impulse[2:,1] = 0
     DM = filter(impulse, ycoef, ARcoef)
-    if shocktype == 0
-        DM = DM[,1]
-    elif shocktype == 1
-        DM = DM[,2]
-    endif
+
+    DM = (shocktype == 0) ? DM[,1] : DM[,2]
 end function
 
 
@@ -557,7 +560,7 @@ function void irf_plot (const matrix m,
                         const string title,
                         const string xlab,
                         const string ylab)
-    /* */
+    /* Plot dynamic multipliers. */
 
     set force_decpoint on
 
@@ -568,9 +571,9 @@ function void irf_plot (const matrix m,
         literal set linetype 2 lc rgb 'black' lw 2
         literal set linetype 3 lc rgb 'grey' dt 2 lw 1.5
         literal set nokey
-        printf "set title '%s'", title
-        printf "set xlabel '%s'", xlab
-        printf "set ylabel '%s'", ylab
+        printf "set title \"%s\"", title
+        printf "set xlabel \"%s\"", xlab
+        printf "set ylabel \"%s\"", ylab
     end plot --output=display
 
     set force_decpoint off
@@ -592,9 +595,9 @@ function void irf_plotadv (const matrix mplot,
     plot mplot
         options with-lines time-series single-yaxis #@fontopt
         literal set nokey
-        printf "set title '%s'", title
-        printf "set xlabel '%s' offset 0,1", xlab
-        printf "set ylabel '%s'", ylab
+        printf "set title \"%s\"", title
+        printf "set xlabel \"%s\" offset 0,1", xlab
+        printf "set ylabel \"%s\"", ylab
         literal set y2tics
         literal set xtics out offset 0,0.7	# Move xtics closer to the x-axis
         literal set ytics out
