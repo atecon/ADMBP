@@ -133,7 +133,7 @@ Version 0.99 (March, 2021)
 
 \begin_deeper
 \begin_layout Itemize
-fix bug with the 'const' modifier
+fix bug with the 'const' modifier and many more bugs
 \end_layout
 
 \begin_layout Itemize
@@ -149,7 +149,7 @@ make use of r/cnameset()
 \end_layout
 
 \begin_layout Itemize
-minimum gretl version required is 2020a
+minimum gretl version required is 2020b
 \end_layout
 
 \end_deeper
