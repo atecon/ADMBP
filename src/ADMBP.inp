@@ -194,7 +194,10 @@ function void drawE (const bundle b, series *e)
 
     if b.btype == 0
         series e = normal(0, sd(uhat))	# parametric bootstrap
-    elifseries e = resample(uhat)		# draw from estimated residuals by resampling (may suffer from serial correl.)
+    elif b.btype == 1
+        # draw from estimated residuals by resampling
+        # (may suffer from serial correl.)
+        series e = resample(uhat)
     elif b.btype == 2						# wild uniform
         series e = resample(uhat) * uniform(0,1)
     elif b.btype == 3	# Use Rademacher distrib. instead of uniform(0,1)

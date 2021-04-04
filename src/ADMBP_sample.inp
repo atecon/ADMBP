@@ -55,7 +55,7 @@ print LRinc
 ECterm(&b)
 series ECM = b.ECM		# unrestricted constant
 series ECMrc = b.ECMrc	# restricted const.
-gnuplot ECM ECMrc --time-series --with-lines --output=display
+scatters ECM ECMrc --with-lines --output=display
 
 # Plot multipliers
 list Lplot = Lall - rxlist
