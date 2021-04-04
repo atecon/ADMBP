@@ -1,7 +1,7 @@
 function void lagselect (bundle *b)
     /* Determine optimal lag-length */
 
-    errorif(b.pq == 1, "You have to set the maximum lag-length pq > 1")
+    errorif(b.pq == 1, "You have to set the maximum lag-length 'pq' > 1.")
 
     series y = b.my
     list xlist = b.mx
@@ -10,7 +10,7 @@ function void lagselect (bundle *b)
 
     smpl +b.pq ;
     matrix mat = zeros(b.pq,3)
-    rnam = sprintf("%2.0f ", seq(1, b.pq))
+    row_labels = sprintf("%2.0f ", seq(1, b.pq))
 
     loop i=1..b.pq -q
         list Lx = xlist(b.pqmin to -$i) rxlist
@@ -23,11 +23,14 @@ function void lagselect (bundle *b)
     endloop
     matrix b.pq = iminc(mat[,b.crit])
 
+    cnameset(b.pq, "AIC BIC HQ")
+    rnameset(b.pq, row_labels)
+
     if b.verbose
         printf "\n*** Lag selection based on %d obs. ***\n", $nobs
         printf "--------------------------------------\n"
         cnameset(mat, "AIC BIC HQ")
-        rnameset(mat, rnam)
+        rnameset(mat, row_labels)
         printf "%12.4f\n", mat
         printf "The selected information criteria suggests an ARDL(%d,%d) in levels.\n", b.pq, b.pq
         printf "\n"
@@ -116,7 +119,7 @@ end function
 function void runARDL (bundle *b)
     /* Actual estimation part. */
 
-    errorif(inbundle(b, "finset"), "Before calling runARDL() a 2nd time, call setARDL() 1st again.")
+    errorif(inbundle(b, "finset"), "Before calling runARDL() a second time, call setARDL() first again.")
 
     series endogenous = b.my
     list xlist = b.mx
@@ -172,7 +175,6 @@ function void runARDL (bundle *b)
             b.DM_@vname = quantile(b.DMraw_@vname', crit)'
         endloop
     else
-        # unstable case
         loop i=1..(1+b.nx) -q
             string vname = b.names_variables[$i]
             matrix b.DM_@vname = NA
@@ -183,7 +185,7 @@ function void runARDL (bundle *b)
 end function
 
 
-function void drawE (bundle *b, series *e)
+function void drawE (const bundle b, series *e)
     /* Sample from residuals. */
 
     series uhat = b.muhat
@@ -191,47 +193,19 @@ function void drawE (bundle *b, series *e)
     #uhat = uhat-mean(uhat)	# FIXME: is re-centering needed here??
 
     if b.btype == 0
-        series e = normal(0,sd(uhat))	# parametric bootstrap
+        series e = normal(0, sd(uhat))	# parametric bootstrap
     elifseries e = resample(uhat)		# draw from estimated residuals by resampling (may suffer from serial correl.)
     elif b.btype == 2						# wild uniform
         series e = resample(uhat) * uniform(0,1)
-    elif b.btype == 3				# Use Rademacher distrib. instead of uniform(0,1)
+    elif b.btype == 3	# Use Rademacher distrib. instead of uniform(0,1)
         series Rad = uniform(0,1)
-        Rad = -1*(Rad<=0.5) + (Rad>0.5)
-        eries e = resample(uhat) * Rad
+        Rad = -1 * (Rad <= 0.5) + (Rad > 0.5)
+        series e = resample(uhat) * Rad
     elif b.btype == 4						# block bootstrap
-        series e = SB(b.muhat)
+        series e = SB(b.muhat, null, null)
     endif
 end function
 
-
-function series SB (matrix x)
-    /* */
-
-    #matrix x "Data to be resampled"
-    # FIXME: should x be the de-meaned residuals??
-
-    scalar n = rows(x)
-    errorif(n == 0, "Data input error, check your data.")
-
-    b = round(1.75*(n^(1/3)))	# mean block size to rule-of-thumb value
-    p = 1/b   					# probability of a new run
-    s = seq(1,n)'              	# sequence
-    u = 1 | (muniform(n-1,1) .< p) # run starts
-    r = cum(u)                     # id of each run
-    nr = r[n]                      # how many runs ?
-    sub = selifr(r ~ s, u)         # starting row for each run
-    sub[,2] -= mrandgen(i, 1, n, nr, 1) # adjust starting points
-
-    # --- create mini-trends ----------------
-    s -= replace(r, sub[,1], sub[,2])
-
-    # roll over if necessary
-    s = ((s-1)%n) + 1
-    series xx = x[s,]
-
-    return xx
-end function
 
 
 function void bootARDL (bundle *b)
@@ -263,7 +237,7 @@ function void bootARDL (bundle *b)
 
     loop while nloop <= b.bootrep -q
         series e = 0
-        drawE (&b,&e)
+        drawE(b,&e)
 
         # Simulate the DGP
         series y_b = zeromiss(0)
