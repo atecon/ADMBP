@@ -56,7 +56,7 @@ endif
 <description>Exogenous in levels</description>
   </param>
   <param name="rxlist" type="list" optional="true">
-<description>Restricted I(0)s excl. intercept</description>
+<description>Restricted I0s excl. intercept</description>
   </param>
   <param name="pqmax" type="int" min="1" default="4">
 <description>Max. lag-length in levels</description>
@@ -477,7 +477,7 @@ delete b.muhat
   <param name="ARbeta" type="matrix">
 <description>Coeff. vector of endogenous</description>
   </param>
-  <param name="X" type="list" const="true">
+  <param name="X" type="list">
 <description>rxlist ~ xlist of exogenous, -pmin to -p</description>
   </param>
   <param name="Xbeta" type="matrix" const="true">
@@ -580,14 +580,13 @@ if b.optsil == &quot;&quot;
   ARDLinfo(&amp;b)
 endif
 list lDET = null
-if b.addDET==1
+if b.addDET == 1
   lDET += const
 endif
 # Set the instruments
-max_lag = 5 * b.pq  # somehow arbitrary choice...
-list inst = lDET endogenous(-1 to -max_lag) xlist(b.pqmin to -max_lag) rxlist
+list inst = lDET endogenous(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
 # IV 2SLS
-list indepvars = lDET xlist dY(0 to -(b.pq+1)) Dxlist(0 to -(b.pq+1)) rxlist
+list indepvars = lDET xlist dY(b.pqmin to -(b.pq-1)) Dxlist(b.pqmin to -(b.pq-1)) rxlist
 tsls endogenous indepvars ; inst --robust --quiet
 scalar ax = 1 + nelem(lDET)
 scalar ex = ax + nelem(xlist) - 1
@@ -668,7 +667,7 @@ print LRinc
 ECterm(&amp;b)
 series ECM = b.ECM		# unrestricted constant
 series ECMrc = b.ECMrc	# restricted const.
-gnuplot ECM ECMrc --time-series --with-lines --output=display
+scatters ECM ECMrc --with-lines --output=display
 
 # Plot multipliers
 list Lplot = Lall - rxlist

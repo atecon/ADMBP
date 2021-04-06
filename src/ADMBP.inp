@@ -54,7 +54,7 @@ end function
 
 function bundle setARDL (const series endogenous "Endogenous in levels",
                          list xlist "Exogenous in levels",
-                         list rxlist[null] "Restricted I(0)s excl. intercept",
+                         list rxlist[null] "Restricted I0s excl. intercept",
                          int pqmax[1::4] "Max. lag-length in levels",
                          int crit[1:3:1] "Info criteria" {"AIC", "BIC", "HQ"},
                          bool condARDL[1] "Consider contemporaneous effects of xlist",
@@ -482,17 +482,14 @@ function void Bewley(bundle *b)
     endif
 
     list lDET = null
-    if b.addDET==1
+    if b.addDET == 1
         lDET += const
     endif
 
     # Set the instruments
-    max_lag = 5 * b.pq  # somehow arbitrary choice...
-    list inst = lDET endogenous(-1 to -max_lag) xlist(b.pqmin to -max_lag) rxlist
-
+    list inst = lDET endogenous(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
     # IV 2SLS
-    list indepvars = lDET xlist dY(0 to -(b.pq+1)) Dxlist(0 to -(b.pq+1)) rxlist
-
+    list indepvars = lDET xlist dY(b.pqmin to -(b.pq-1)) Dxlist(b.pqmin to -(b.pq-1)) rxlist
     tsls endogenous indepvars ; inst --robust --quiet
 
     scalar ax = 1 + nelem(lDET)
