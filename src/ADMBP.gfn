@@ -514,7 +514,7 @@ series ysim = S
  </params>
 <code>/* */
 printf &quot;\n******************************************\n&quot;
-printf &quot;*** ARDL (%d) in levels regression       ***\n&quot;, b.pq
+printf &quot;    ARDL (%d) in levels regression\n&quot;, b.pq
 printf &quot;******************************************\n&quot;
 printf &quot;\nSettings for dynamic multiplier computation\n&quot;
 string stype = (b.shocktype == 0) ? &quot;temporary&quot; : &quot;permanent&quot;
@@ -541,9 +541,9 @@ printf &quot;Confidence interval: %.2f\n&quot;, (1 - b.cilevel)
  </params>
 <code>/* */
 printf &quot;\n******************************************\n&quot;
-printf &quot;*** Error-correction model bootstrap   ***\n&quot;
-printf &quot;*** coefficient estimates           ***\n&quot;
-printf &quot;******************************************\n&quot;
+printf &quot;    Error-correction model bootstrap\n&quot;
+printf &quot;    coefficient estimates\n&quot;
+printf &quot;********************************************\n&quot;
 printf &quot;\nError correction coeff. rho (bootstrap values)\n&quot;
 printf &quot;----------------------------------------------\n&quot;
 printf &quot;                 Mean   Median     S.D.\n&quot;

@@ -353,7 +353,7 @@ function void ARDLinfo (bundle *b)
     /* */
 
     printf "\n******************************************\n"
-    printf "*** ARDL (%d) in levels regression       ***\n", b.pq
+    printf "    ARDL (%d) in levels regression\n", b.pq
     printf "******************************************\n"
     printf "\nSettings for dynamic multiplier computation\n"
 
@@ -383,9 +383,9 @@ function void ECMinfo (bundle *b)
     /* */
 
     printf "\n******************************************\n"
-    printf "*** Error-correction model bootstrap   ***\n"
-    printf "*** coefficient estimates           ***\n"
-    printf "******************************************\n"
+    printf "    Error-correction model bootstrap\n"
+    printf "    coefficient estimates\n"
+    printf "********************************************\n"
     printf "\nError correction coeff. rho (bootstrap values)\n"
     printf "----------------------------------------------\n"
     printf "                 Mean   Median     S.D.\n"
@@ -411,7 +411,7 @@ function void ECMinfo (bundle *b)
 end function
 
 
-function void LRbeta(bundle *b)
+function void LRbeta (bundle *b)
     /* Transform the ARDL level model coefficients in order to obtain the the error-correction coeff. "rho", the long-run multipliers (median bootstrap values) and its bootstrap S.D. */
 
     # RHO = -[1-SUM_j=1^pq a_{t-j}]
@@ -466,7 +466,7 @@ function void LRbeta(bundle *b)
 end function
 
 
-function void Bewley(bundle *b)
+function void Bewley (bundle *b)
     /* Estimate the long-run multiplier and associated S.E. using the IV approach by Bewley (1979) */
 
     series endogenous = b.my
@@ -499,7 +499,7 @@ function void Bewley(bundle *b)
  end function
 
 
-function void ECterm(bundle *b)
+function void ECterm (bundle *b)
     # Compute error correction term (cointegrating relationship)
     # based on bootstrap median long-run coeff.
     # See for the different cases:
