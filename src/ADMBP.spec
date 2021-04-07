@@ -1,6 +1,6 @@
 author = Artur Tarassow
 email = atecon@posteo.de
-version = 0.91
+version = 0.991
 date = 2021-04-07
 description = ARDL Dynamic Multiplier Bootstrap Package
 tags = C22 C20

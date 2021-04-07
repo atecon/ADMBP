@@ -2,7 +2,7 @@
 <gretl-functions>
 <gretl-function-package name="ADMBP" needs-time-series-data="true" minver="2020b" lives-in-subdir="true">
 <author email="atecon@posteo.de">Artur Tarassow</author>
-<version>0.91</version>
+<version>0.991</version>
 <date>2021-04-07</date>
 <description>ARDL Dynamic Multiplier Bootstrap Package</description>
 <tags>C22 C20</tags>
