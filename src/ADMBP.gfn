@@ -2,8 +2,8 @@
 <gretl-functions>
 <gretl-function-package name="ADMBP" needs-time-series-data="true" minver="2020b" lives-in-subdir="true">
 <author email="atecon@posteo.de">Artur Tarassow</author>
-<version>0.99</version>
-<date>2021-04-04</date>
+<version>0.91</version>
+<date>2021-04-07</date>
 <description>ARDL Dynamic Multiplier Bootstrap Package</description>
 <tags>C22 C20</tags>
 <help>
@@ -379,7 +379,7 @@ elif b.btype == 3	# Use Rademacher distrib. instead of uniform(0,1)
   Rad = -1 * (Rad &lt;= 0.5) + (Rad &gt; 0.5)
   series e = resample(uhat) * Rad
 elif b.btype == 4						# block bootstrap
-  series e = SB(b.muhat, null, null)
+  series e = SB(b.muhat, 0)
 endif
 </code>
 </gretl-function>

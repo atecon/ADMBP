@@ -205,7 +205,7 @@ function void drawE (const bundle b, series *e)
         Rad = -1 * (Rad <= 0.5) + (Rad > 0.5)
         series e = resample(uhat) * Rad
     elif b.btype == 4						# block bootstrap
-        series e = SB(b.muhat, null, null)
+        series e = SB(b.muhat, 0)
     endif
 end function
 

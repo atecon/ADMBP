@@ -99,7 +99,7 @@ literal "false"
 \end_layout
 
 \begin_layout Date
-Version 0.99
+Version 0.991
 \end_layout
 
 \begin_layout Standard
@@ -127,6 +127,16 @@ status open
 Changelog
 \end_layout
 
+\begin_layout Itemize
+Version 0.991 (April, 2021)
+\end_layout
+
+\begin_deeper
+\begin_layout Itemize
+Fix bug for calling block-bootstrap SB() function.
+\end_layout
+
+\end_deeper
 \begin_layout Itemize
 Version 0.99 (March, 2021)
 \end_layout
