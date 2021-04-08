@@ -99,7 +99,7 @@ literal "false"
 \end_layout
 
 \begin_layout Date
-Version 0.991
+Version 1.0
 \end_layout
 
 \begin_layout Standard
@@ -128,7 +128,7 @@ Changelog
 \end_layout
 
 \begin_layout Itemize
-Version 0.991 (April, 2021)
+Version 1.0 (April, 2021)
 \end_layout
 
 \begin_deeper
