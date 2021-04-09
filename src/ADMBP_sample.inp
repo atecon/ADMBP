@@ -39,6 +39,7 @@ lagselect(&b)
 
 # Compute bootstrap dynamic multipliers
 runARDL(&b)
+
 # print b
 printf "\nError status = %d.\n", b.error
 

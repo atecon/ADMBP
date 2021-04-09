@@ -85,7 +85,7 @@ function bundle setARDL (const series endogenous "Endogenous in levels",
     scalar nobs = $nobs
     list Lall = endogenous xlist rxlist
     smpl Lall --no-missing
-    errorif($nobs < nobs, "Some of your series has missing values. Fix that. Abort.")
+    errorif($nobs < nobs, "Some of your series has missing values. Abort.")
 
     strings b.names_variables = varnames(Lall)
     b.names_variables[1] = argname(endogenous)
@@ -149,7 +149,7 @@ function void runARDL (bundle *b)
     isstable = is_stable_model(b.ARcoef)
 
     if !isstable
-        print "Error: The model is unstable. Re-specify and try again"
+        print "Error: The model is unstable. Re-specify your model and try again"
         b.error = TRUE
     endif
 
@@ -185,7 +185,7 @@ function void runARDL (bundle *b)
 end function
 
 
-function void drawE (const bundle b, series *e)
+function series drawE (const bundle b)
     /* Sample from residuals. */
 
     series uhat = b.muhat
@@ -193,7 +193,7 @@ function void drawE (const bundle b, series *e)
     #uhat = uhat-mean(uhat)	# FIXME: is re-centering needed here??
 
     if b.btype == 0
-        series e = normal(0, sd(uhat))	# parametric bootstrap
+        series e = normal(0, sd(uhat))	     # parametric bootstrap
     elif b.btype == 1
         # draw from estimated residuals by resampling
         # (may suffer from serial correl.)
@@ -207,6 +207,8 @@ function void drawE (const bundle b, series *e)
     elif b.btype == 4						# block bootstrap
         series e = SB(b.muhat, 0)
     endif
+
+    return e
 end function
 
 
@@ -239,11 +241,8 @@ function void bootARDL (bundle *b)
     scalar failed_bootstrap = 0
 
     loop while nloop <= b.bootrep -q
-        series e = 0
-        drawE(b,&e)
-
-        series y_b = NA
-        varsimA(endogenous, b.ARcoef, Z, Xbeta, e, b.pq, &y_b)
+        series e = drawE(b)
+        series y_b = varsimA(endogenous, b.ARcoef, Z, Xbeta, e, b.pq)
 
         lags y_b 1
         list ylist_b = y_b(-1 to -b.pq)
@@ -257,7 +256,7 @@ function void bootARDL (bundle *b)
         ols y_b features --quiet
 
         if nloop == 1
-            matrix BHAT_b = zeros(b.bootrep,nelem($xlist))
+            matrix BHAT_b = zeros(b.bootrep, nelem($xlist))
         endif
 
         matrix ARcoef_b = $coeff[b.ay:b.ey]
@@ -266,8 +265,9 @@ function void bootARDL (bundle *b)
         if !isstable
             failed++
             if (failed / b.bootrep) >= b.failstop
-                printf "\nError: %d pct. of the bootstrap iterations failed due to instability.\n", 100*b.failstop
-                print "Error: Re-consider to re-specify your model."
+                printf "\nError: %d pct. of the bootstrap iterations failed due to instability.\n",\
+                    100*b.failstop
+                print "Error: Try to re-specify your model."
                 failed_bootstrap = 1
                 break
             endif
@@ -299,9 +299,9 @@ function void bootARDL (bundle *b)
     endloop
 
     if failed_bootstrap == 1 && (quiet != "--quiet")
-        printf "\nError: %.2f pct. of the %d bootstrap iterations failed due to instability.\n", (failed/b.bootrep), b.bootrep
+        printf "\nError: %.2f pct. of the %d bootstrap iterations failed due to instability.\n",\
+            (100 * failed / b.bootrep), b.bootrep
     endif
-
 
     # Clean up the bundle
     delete b.nrx
@@ -317,13 +317,12 @@ function void bootARDL (bundle *b)
 end function
 
 
-function void varsimA (const series endogenous,
-                       matrix ARbeta "Coeff. vector of endogenous",
+function series varsimA (const series endogenous,
+                       const matrix ARbeta "Coeff. vector of endogenous",
                        const list X "rxlist ~ xlist of exogenous, -pmin to -p",
                        const matrix Xbeta "coeff vector of Xs",
-                       const series e "resampled",
-                       int p,
-                       series *ysim)
+                       const series e "innovations",
+                       int p[1::] "Lag length")
     /* Simulate VAR. Thankfully borrowed from Jack. */
 
     matrix my = {endogenous}
@@ -338,14 +337,15 @@ function void varsimA (const series endogenous,
 
     matrix y0 = mreverse(my[1:p])'
     matrix U = {e + m} ~ zeros(T, p-1)
-    matrix S = varsimul(A, U, y0)
-    S = S[,1]
+    matrix S = varsimul(A, U, y0)[, 1]
 
     if p > 1
         S = my[1:p-1] | S
     endif
 
-    series ysim = S
+    series x = S
+
+    return x
 end function
 
 
@@ -486,11 +486,14 @@ function void Bewley (bundle *b)
         lDET += const
     endif
 
-    # Set the instruments
-    list inst = lDET endogenous(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
-    # IV 2SLS
-    list indepvars = lDET xlist dY(b.pqmin to -(b.pq-1)) Dxlist(b.pqmin to -(b.pq-1)) rxlist
-    tsls endogenous indepvars ; inst --robust --quiet
+    # Set the regressors
+    pmax_exog = b.pq - 1
+
+    list Instruments = lDET endogenous(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
+    list Exogenous = lDET xlist dY(b.pqmin to -pmax_exog) \
+                     Dxlist(b.pqmin to -pmax_exog) rxlist
+
+    tsls endogenous Exogenous ; Instruments --robust --quiet --no-tests
 
     scalar ax = 1 + nelem(lDET)
     scalar ex = ax + nelem(xlist) - 1

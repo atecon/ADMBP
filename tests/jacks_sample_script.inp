@@ -1,0 +1,37 @@
+set verbose off
+include ADMBP.gfn
+open fedstl.bin
+
+data unrate cpiaucns
+infl = 100 * sdiff(log(cpiaucns))
+
+# ARDL parameters
+scalar pqmax = 2
+scalar condARDL = TRUE
+scalar infocrit = 1
+# Bootstrap and confidence interval parameters
+scalar horiz = 40
+scalar cilevel = 0.1
+scalar btype = 4
+scalar bootrep = 1000
+scalar shocktype = 1
+
+#------------------------
+# Set up the base bundle
+#------------------------
+list xlist = unrate
+list rxlist = const
+
+smpl infl unrate --no-missing
+
+bundle b = setARDL(infl, xlist, rxlist, pqmax, infocrit,\
+    condARDL, shocktype, btype, bootrep, horiz, cilevel)
+printf "\nError status = %d.\n", b.error
+
+# Determine the optimal lag length (optional)
+lagselect(&b)
+
+# Compute bootstrap dynamic multipliers
+runARDL(&b)
+
+LRbeta(&b)
