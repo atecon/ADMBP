@@ -453,9 +453,6 @@ loop i=1..(1+b.nx) -q
   string vname = b.names_variables[$i]
   matrix b.DMraw_@vname = mout$i
 endloop
-if failed_bootstrap == 1 &amp;&amp; (quiet != &quot;--quiet&quot;)
-  printf &quot;\nError: %.2f pct. of the %d bootstrap iterations failed due to instability.\n&quot;, (100 * failed / b.bootrep), b.bootrep
-endif
 # Clean up the bundle
 delete b.nrx
 delete b.crit
