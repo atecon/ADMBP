@@ -298,11 +298,6 @@ function void bootARDL (bundle *b)
         matrix b.DMraw_@vname = mout$i
     endloop
 
-    if failed_bootstrap == 1 && (quiet != "--quiet")
-        printf "\nError: %.2f pct. of the %d bootstrap iterations failed due to instability.\n",\
-            (100 * failed / b.bootrep), b.bootrep
-    endif
-
     # Clean up the bundle
     delete b.nrx
     delete b.crit
