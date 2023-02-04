@@ -35,7 +35,7 @@ bundle b = setARDL(c, xlist, rxlist, pqmax, infocrit,\
 printf "\nError status = %d.\n", b.error
 
 # Determine the optimal lag length (optional)
-lagselect(&b)
+lagselectARDL(&b)
 
 # Compute bootstrap dynamic multipliers
 runARDL(&b)
@@ -59,43 +59,23 @@ series ECMrc = b.ECMrc	# restricted const.
 scatters ECM ECMrc --with-lines --output=display
 
 # Plot multipliers
-list Lplot = Lall - rxlist
-irf_plot(b.DM_inc, "Response of c to shock in inc", "Horizon", "Response")
+bundle opts = _(title = "Response of c to shock in inc",
+                xlabel = "Horizon", ylabel = "Response")
+irfARDL(b.DM_inc, opts)
 
 
 /* Activate if wished
+list Lplot = Lall - rxlist
 strings names_variables = varnames(Lplot)
 loop foreach i Lplot -q
-    string ylab = ""
-    string xlab = "Horizon"
-    # For the endogenous always use "y" irrespective of the actual name!
-    string shock = names_variables[i]
+    string shock = "$i"
+    bundle opts = _(title = sprintf("Shock of %s on c", "$i"))
+
     # Plot the bootstrap median and confidence interval of
     # the response of y on a change in "shock"
-    irf_plot(b["DM_@shock"], "Shock of @shock on c", xlab, ylab)
+    irfARDL(b["DM_@shock"], opts)
 
     # Plot ALL bootstrap dynamic multipliers of the response of
-    # y on a change in "shock"
-    #irf_plot(b["DMraw_@shock"])
-endloop
-*/
-
-
-/* Activate if wished
-#-----------------------------------------------------
-# Plot multipliers with additional options for drawing
-#-----------------------------------------------------
-strings names_variables = varnames(Lplot)
-scalar font = 11
-scalar lw = 2.0
-loop foreach i Lplot -q
-    string figpath = "irf_$i.png"
-    string title = sprintf("Response of %s to shock in %s",\
-            varnames(Lplot)[1], varnames(Lplot)[i])
-    string xlab = "put a x label here"
-    string ylab = "put a y label here"
-
-    string shock = names_variables[i]
-    irf_plotadv(b["DM_@shock"], figpath, title, xlab, ylab, font, lw)
+    irfARDL(b["DMraw_@shock"])
 endloop
 */

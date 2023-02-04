@@ -99,7 +99,7 @@ literal "false"
 \end_layout
 
 \begin_layout Date
-Version 1.0
+Version 2.0
 \end_layout
 
 \begin_layout Standard
@@ -128,12 +128,48 @@ Changelog
 \end_layout
 
 \begin_layout Itemize
+Version 2.0 (January, 2023)
+\end_layout
+
+\begin_deeper
+\begin_layout Itemize
+Renaming of public function lagselectARDL
+\family typewriter
+() 
+\family default
+into lagselectARDL
+\family typewriter
+ARDL
+\family default
+() 
+\end_layout
+
+\begin_layout Itemize
+New function 
+\family typewriter
+irfARDL()
+\family default
+ replaces the obsolete functions 
+\family typewriter
+irf_plot()
+\family default
+ and 
+\family typewriter
+irf_plotadv()
+\end_layout
+
+\end_deeper
+\begin_layout Itemize
 Version 1.0 (April, 2021)
 \end_layout
 
 \begin_deeper
 \begin_layout Itemize
-Fix bug for calling block-bootstrap SB() function.
+Fix bug for calling block-bootstrap 
+\family typewriter
+SB()
+\family default
+ function.
 \end_layout
 
 \end_deeper
@@ -155,7 +191,9 @@ replace deprecated sprintf command by function
 \end_layout
 
 \begin_layout Itemize
-make use of r/cnameset()
+make use of 
+\family typewriter
+r/cnameset()
 \end_layout
 
 \begin_layout Itemize
@@ -169,7 +207,11 @@ Version 0.96 (April, 2018)
 
 \begin_deeper
 \begin_layout Itemize
-fix bug with font size in irf_plotadv() function
+fix bug with font size in 
+\family typewriter
+irf_plotadv()
+\family default
+ function
 \end_layout
 
 \end_deeper
@@ -1111,9 +1153,9 @@ Determine the optimal lag length
 \begin_layout Standard
 A first step of the modeling stage comprises the determination of the optimal
  lag length of the approximate ARDL specification.
- The function 
+ The function lagselectARDL
 \family typewriter
-lagselect()
+()
 \family default
  makes use of gretl's 
 \family typewriter
@@ -1163,9 +1205,9 @@ ely.
 \end_layout
 
 \begin_layout Standard
-Before we can call the public function 
+Before we can call the public function lagselectARDL
 \family typewriter
-lagselect()
+()
 \family default
 , we need to set up the main function 
 \family typewriter
@@ -1366,7 +1408,7 @@ infocrit, condARDL, shocktype, btype, bootrep, horiz, cilevel)
 
 \begin_layout Plain Layout
 
-lagselect(&b)
+lagselectARDL(&b)
 \end_layout
 
 \begin_layout Plain Layout
@@ -1485,14 +1527,15 @@ setARDL()
 \end_inset
 
  holds all necessary information.
- Second, using these bundle information, we have called the function 
+ Second, using these bundle information, we have called the function lagselectAR
+DL
 \family typewriter
-lagselect()
+()
 \family default
 .
- Calling this 
+ Calling this lagselectARDL
 \family typewriter
-lagselect()
+()
 \family default
  function is an optional case.
 \end_layout
@@ -2156,7 +2199,7 @@ Plot the dynamic multipliers
 We can easily plot the associated dynamic multipliers for each variable
  over some horizon using the 
 \family typewriter
-irf_plot()
+irfARDL()
 \family default
  function.
  The following listing compiles a figure with the corresponding output.
@@ -2193,7 +2236,17 @@ status open
 
 \begin_layout Plain Layout
 
-irf_plot(b.DM_inc, "Shock of inc on c", "Horizon", "Response")
+bundle opts = _(title = "Response of c to shock in inc",
+\end_layout
+
+\begin_layout Plain Layout
+
+                xlabel = "Horizon", ylabel = "Response")
+\end_layout
+
+\begin_layout Plain Layout
+
+irfARDL(b.DM_inc, opts)
 \end_layout
 
 \end_inset
@@ -2229,141 +2282,12 @@ Here is the corresponding output with 90% confidence intervals.
 \end_layout
 
 \begin_layout Standard
-Alternatively we also offer a more sophisticated plotting function which
- includes more plotting options for the user, e.g.
- setting font size, line width, title and axis labeling.
- In the following, we provide a loop function which computes the IRFs for
- all possible cases and stores the three figures as pdf files, respectively.
-\end_layout
-
-\begin_layout Standard
-\begin_inset Box Doublebox
-position "t"
-hor_pos "c"
-has_inner_box 1
-inner_pos "t"
-use_parbox 0
-use_makebox 0
-width "100col%"
-special "none"
-height "1in"
-height_special "totalheight"
-thickness "0.4pt"
-separation "3pt"
-shadowsize "4pt"
-framecolor "black"
-backgroundcolor "none"
-status open
-
-\begin_layout Plain Layout
-\begin_inset listings
-inline false
-status open
-
-\begin_layout Plain Layout
-
-list Lplot = Lall - rxlist
-\end_layout
-
-\begin_layout Plain Layout
-
-strings S = varnames(Lplot)
-\end_layout
-
-\begin_layout Plain Layout
-
-S[1] = "Y" # The endogenous is always named "Y"
-\end_layout
-
-\begin_layout Plain Layout
-
-\end_layout
-
-\begin_layout Plain Layout
-
-#-----------------------------------------------------
-\end_layout
-
-\begin_layout Plain Layout
-
-# Plot multipliers with additional options for drawing
-\end_layout
-
-\begin_layout Plain Layout
-
-# Save as *.pdf
-\end_layout
-
-\begin_layout Plain Layout
-
-#-----------------------------------------------------
-\end_layout
-
-\begin_layout Plain Layout
-
-scalar font = 26  # set font size
-\end_layout
-
-\begin_layout Plain Layout
-
-scalar lw = 2.0   # set line width
-\end_layout
-
-\begin_layout Plain Layout
-
-loop foreach i Lplot -q
-\end_layout
-
-\begin_layout Plain Layout
-
-	string figpath = "@dotdir/irf_$i.pdf"
-\end_layout
-
-\begin_layout Plain Layout
-
-	string title = "foo"
-\end_layout
-
-\begin_layout Plain Layout
-
-	string xlab = "put a x label here"
-\end_layout
-
-\begin_layout Plain Layout
-
-	string ylab = "put a y label here"
-\end_layout
-
-\begin_layout Plain Layout
-
-	string shock = S[i]	# read out the name of the shock
-\end_layout
-
-\begin_layout Plain Layout
-
-	irf_plotadv(b.DM_@shock, figpath, title, xlab,ylab, 
-\backslash
-
-\end_layout
-
-\begin_layout Plain Layout
-
-	font, poslegend, lw)
-\end_layout
-
-\begin_layout Plain Layout
-
-endloop
-\end_layout
-
-\end_inset
-
-
-\end_layout
-
-\end_inset
-
-
+The function 
+\family typewriter
+irfARDL()
+\family default
+ accepts further parameters for tweaking the plot.
+ See the function description below.
 \end_layout
 
 \begin_layout Section
@@ -2532,7 +2456,7 @@ This is the basic function for setting up all relevant series, parameter
 \end_layout
 
 \begin_layout Subsection
-lagselect
+lagselectARDLARDL
 \end_layout
 
 \begin_layout Standard
@@ -2555,9 +2479,9 @@ backgroundcolor "none"
 status open
 
 \begin_layout Plain Layout
-
+lagselectARDL
 \family typewriter
-lagselect(bundle *b)
+ARDL(bundle *b)
 \end_layout
 
 \end_inset
@@ -2595,9 +2519,9 @@ pqmax
 
 \begin_layout Standard
 This corresponding scalar will be automatically updated in the relevant
- bundle once 
+ bundle once lagselectARDL
 \family typewriter
-lagselect()
+()
 \family default
  as called.
  At the moment, the number of optimal lags has to be equal among all regressors
@@ -2771,7 +2695,7 @@ gnuplot ECM ECMrc --time-series --with-lines --output=display
 \end_layout
 
 \begin_layout Subsection
-irf_plot
+irfARDL
 \end_layout
 
 \begin_layout Standard
@@ -2796,7 +2720,7 @@ status open
 \begin_layout Plain Layout
 
 \family typewriter
-irf_plot(matrix m, string title, string xlab, string ylab)
+irfARDL(matrix m, bundle self[null])
 \end_layout
 
 \end_inset
@@ -2824,132 +2748,102 @@ matrix m
 \end_layout
 
 \begin_layout Enumerate
-
-\family typewriter
-string title
-\family default
-: provide a string for the title.
+bundle self: Bundle accepting the following parameters for tweaking and
+ storing the plot:
 \end_layout
 
+\begin_deeper
 \begin_layout Enumerate
-
+string 
 \family typewriter
-string xlab
+title
 \family default
-: provide a string for the x-label.
-\end_layout
+: Title string.
+ Default: 
+\begin_inset Quotes eld
+\end_inset
 
-\begin_layout Enumerate
 
-\family typewriter
-string ylab
-\family default
-: provide a string for the y-label.
-\end_layout
-
-\begin_layout Standard
-This function plots the dynamic multipliers immediately on the screen.
-\end_layout
-
-\begin_layout Subsection
-irf_plotadv
-\end_layout
-
-\begin_layout Standard
-\begin_inset Box Boxed
-position "t"
-hor_pos "c"
-has_inner_box 1
-inner_pos "t"
-use_parbox 0
-use_makebox 0
-width "100col%"
-special "none"
-height "1in"
-height_special "totalheight"
-thickness "0.4pt"
-separation "3pt"
-shadowsize "4pt"
-framecolor "black"
-backgroundcolor "none"
-status open
-
-\begin_layout Plain Layout
-
-\family typewriter
-irf_plot(matrix m, string fname, string title, string xlab, string ylab,
- int fontsize[5::14], scalar lw)
-\end_layout
-
+\begin_inset Quotes erd
 \end_inset
 
 
 \end_layout
 
-\begin_layout Standard
-Return type: 
+\begin_layout Enumerate
+string 
 \family typewriter
-void
+ylabel
+\family default
+: String for the label on y-axis.
+ Default: 
+\begin_inset Quotes eld
+\end_inset
+
+
+\begin_inset Quotes erd
+\end_inset
+
+
 \end_layout
 
 \begin_layout Enumerate
-
+string 
 \family typewriter
-matrix m
+xlabel
 \family default
-: matrix with either one column (irf only), or with three columns (irf and
- confidence bounds).
+: String for the label on y-axis.
+ Default: 
+\begin_inset Quotes eld
+\end_inset
+
+Horizon
+\begin_inset Quotes erd
+\end_inset
+
+
 \end_layout
 
 \begin_layout Enumerate
-
+scalar 
 \family typewriter
-string fname
+fontsize
 \family default
-: provide the path and filename (+file extension, e.g.
- pdf, png, eps) for storing the graph.
+: Fontsize in pt.
+ Default: 10 pt
 \end_layout
 
 \begin_layout Enumerate
-
+scalar 
 \family typewriter
-string title
+lindewidth
 \family default
-: provide a string for the title.
+: Width of the lines.
+ Default: 1
 \end_layout
 
 \begin_layout Enumerate
-
+string 
 \family typewriter
-string xlab
+filename
 \family default
-: provide a string for the x-label.
+: Full path and filename where to store the plot.
+ If 
+\family typewriter
+
+\begin_inset Quotes eld
+\end_inset
+
+display
+\begin_inset Quotes erd
+\end_inset
+
+
+\family default
+ then the plot is immediately shown on screen.
 \end_layout
 
-\begin_layout Enumerate
-
-\family typewriter
-string ylab
-\family default
-: provide a string for the y-label.
-\end_layout
-
-\begin_layout Enumerate
-
-\family typewriter
-int fontsize[5::14]
-\family default
-: set the font size (default 14)
-\end_layout
-
-\begin_layout Enumerate
-
-\family typewriter
-scalar lw
-\family default
-: set the line width.
-\end_layout
-
+\end_deeper
 \begin_layout Section*
 References
 \end_layout

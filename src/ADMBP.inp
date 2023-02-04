@@ -1,4 +1,4 @@
-function void lagselect (bundle *b)
+function void lagselectARDL (bundle *b)
     /* Determine optimal lag-length */
 
     errorif(b.pq == 1, "You have to set the maximum lag-length 'pq' > 1.")
@@ -554,64 +554,56 @@ function void dmfilt (const matrix ARcoef,
 end function
 
 
-function void irf_plot (const matrix m,
-                        const string title,
-                        const string xlab,
-                        const string ylab)
-    /* Plot dynamic multipliers. */
+function bundle plot_defaults (void)
+    /* Default parameter values of plotting dynamic multipliers. */
 
-    set force_decpoint on
+    bundle self
+    string self.title = ""
+    string self.ylabel = ""
+    string self.xlabel = "Horizon"
+    scalar self.fontsize = 10
+    scalar self.lindewidth = 1
+    string self.filename = "display"
 
-    plot m
-        option single-yaxis
-        options with-lines time-series
-        literal set linetype 1 lc rgb 'grey' dt 2 lw 1.5
-        literal set linetype 2 lc rgb 'black' lw 2
-        literal set linetype 3 lc rgb 'grey' dt 2 lw 1.5
-        literal set nokey
-        printf "set title \"%s\"", title
-        printf "set xlabel \"%s\"", xlab
-        printf "set ylabel \"%s\"", ylab
-    end plot --output=display
-
-    set force_decpoint off
+    return self
 end function
 
 
-function void irf_plotadv (const matrix mplot,
-                           const string fname,
-                           const string title,
-                           const string xlab,string ylab,
-                           int fontsize[5::14] "Set font size in pt",
-                           scalar LW "linewidth")
-    /* */
+function void irfARDL (const matrix mplot,
+                       bundle self[null])
+    /* Function for plotting dynamic multipliers. */
 
-    string fontopt = sprintf("font='serif,%d'", fontsize)
-
+    if exists(self)
+        self = self + plot_defaults()
+    else
+        bundle self = plot_defaults()
+    endif
+    string filename = self.filename
     set force_decpoint on
 
     plot mplot
-        options with-lines time-series single-yaxis #@fontopt
+        options with-lines time-series single-yaxis
         literal set nokey
-        printf "set title \"%s\"", title
-        printf "set xlabel \"%s\" offset 0,1", xlab
-        printf "set ylabel \"%s\"", ylab
+        printf "set title \"%s\"", self.title
+        printf "set xlabel \"%s\" offset 0,1", self.xlabel
+        printf "set ylabel \"%s\"", self.ylabel
         literal set y2tics
         literal set xtics out offset 0,0.7	# Move xtics closer to the x-axis
         literal set ytics out
         #2) put the border more to the background by applying it
         # only on the left and bottom part and put it and the tics in gray
         printf "set style line 11 lc rgb \"#808080\" lt 1"
-        literal set border 3 back ls 11			# get rid of upper + left border
+        literal set border 3 back ls 11	# get rid of upper + left border
         literal set tics nomirror
-        #add a slight grid to make it easier to follow the exact position of the curves
+        # add a slight grid to make it easier to follow the exact
+        # position of the curves
         printf "set style line 12 lc rgb \"#808080\" lt 0 lw 1"
         literal set grid back ls 12
         # Line Styles
-        printf "set linetype 1 lc rgb 'grey' dt 2 lw %d", LW
-        printf "set linetype 2 lc rgb 'black' lw %d", LW
-        printf "set linetype 3 lc rgb 'grey' dt 2 lw %d", LW
-    end plot --output="@fname"
+        printf "set linetype 1 lc rgb 'grey' dt 2 lw %d", self.lindewidth
+        printf "set linetype 2 lc rgb 'black' lw %d", self.lindewidth
+        printf "set linetype 3 lc rgb 'grey' dt 2 lw %d", self.lindewidth
+    end plot --output="@filename"
 
     set force_decpoint off
 end function

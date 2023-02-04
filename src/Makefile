@@ -1,18 +1,19 @@
 PKG = ADMBP
+PREFIX = $(shell pkg-config --variable=prefix gretl)
 
-$(PKG).gfn: $(PKG).inp $(PKG).spec $(PKG)_sample.inp
+INP = $(PKG).inp $(PKG)_sample.inp
+GFN = $(PKG).gfn
+
+$(PKG).gfn : $(INP) $(PKG).spec
 	gretlcli --makepkg $(PKG).inp
 
-#$(PKG).pdf: $(PKG).tex
-#	pdflatex $<
-#	bibtex $(PKG)
-#	pdflatex $<
-#	pdflatex $<
+$(PKG).zip : $(INP) $(GFN)
+	echo "makepkg $(PKG).zip" | gretlcli -b -
 
-#  Only if the manual is a pdf file or you provide an external dataset
 install: $(PKG).zip $(PKG).pdf
-	echo pkg install $(PKG).zip --local | gretlcli -b -
+	echo "pkg install $(PKG).zip --local" | gretlcli -b -
 
 # Only for zip-file
 clean:
-	rm -f $(PKG).zip
+	rm -rf $(PKG).zip
+	rm -rf session.inp

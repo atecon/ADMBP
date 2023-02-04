@@ -2,8 +2,8 @@
 <gretl-functions>
 <gretl-function-package name="ADMBP" needs-time-series-data="true" minver="2020b" lives-in-subdir="true">
 <author email="atecon@posteo.de">Artur Tarassow</author>
-<version>1.0</version>
-<date>2021-04-08</date>
+<version>2.0</version>
+<date>2023-02-04</date>
 <description>ARDL Dynamic Multiplier Bootstrap Package</description>
 <tags>C22 C20</tags>
 <help>
@@ -11,7 +11,7 @@ pdfdoc:ADMBP.pdf
 </help>
 <depends count="1">
 SB </depends>
-<gretl-function name="lagselect" type="void">
+<gretl-function name="lagselectARDL" type="void">
  <params count="1">
   <param name="b" type="bundleref"/>
  </params>
@@ -279,68 +279,42 @@ if b.addDET == 1
 endif
 </code>
 </gretl-function>
-<gretl-function name="irf_plot" type="void">
- <params count="4">
-  <param name="m" type="matrix" const="true"/>
-  <param name="title" type="string" const="true"/>
-  <param name="xlab" type="string" const="true"/>
-  <param name="ylab" type="string" const="true"/>
- </params>
-<code>/* Plot dynamic multipliers. */
-set force_decpoint on
-plot m
-  option single-yaxis
-  options with-lines time-series
-  literal set linetype 1 lc rgb 'grey' dt 2 lw 1.5
-  literal set linetype 2 lc rgb 'black' lw 2
-  literal set linetype 3 lc rgb 'grey' dt 2 lw 1.5
-  literal set nokey
-  printf &quot;set title \&quot;%s\&quot;&quot;, title
-  printf &quot;set xlabel \&quot;%s\&quot;&quot;, xlab
-  printf &quot;set ylabel \&quot;%s\&quot;&quot;, ylab
-end plot --output=display
-set force_decpoint off
-</code>
-</gretl-function>
-<gretl-function name="irf_plotadv" type="void">
- <params count="7">
+<gretl-function name="irfARDL" type="void">
+ <params count="2">
   <param name="mplot" type="matrix" const="true"/>
-  <param name="fname" type="string" const="true"/>
-  <param name="title" type="string" const="true"/>
-  <param name="xlab" type="string" const="true"/>
-  <param name="ylab" type="string"/>
-  <param name="fontsize" type="int" min="5" default="14">
-<description>Set font size in pt</description>
-  </param>
-  <param name="LW" type="scalar">
-<description>linewidth</description>
-  </param>
+  <param name="self" type="bundle" optional="true"/>
  </params>
-<code>/* */
-string fontopt = sprintf(&quot;font='serif,%d'&quot;, fontsize)
+<code>/* Function for plotting dynamic multipliers. */
+if exists(self)
+  self = self + plot_defaults()
+else
+  bundle self = plot_defaults()
+endif
+string filename = self.filename
 set force_decpoint on
 plot mplot
-  options with-lines time-series single-yaxis #@fontopt
+  options with-lines time-series single-yaxis
   literal set nokey
-  printf &quot;set title \&quot;%s\&quot;&quot;, title
-  printf &quot;set xlabel \&quot;%s\&quot; offset 0,1&quot;, xlab
-  printf &quot;set ylabel \&quot;%s\&quot;&quot;, ylab
+  printf &quot;set title \&quot;%s\&quot;&quot;, self.title
+  printf &quot;set xlabel \&quot;%s\&quot; offset 0,1&quot;, self.xlabel
+  printf &quot;set ylabel \&quot;%s\&quot;&quot;, self.ylabel
   literal set y2tics
   literal set xtics out offset 0,0.7	# Move xtics closer to the x-axis
   literal set ytics out
   #2) put the border more to the background by applying it
   # only on the left and bottom part and put it and the tics in gray
   printf &quot;set style line 11 lc rgb \&quot;#808080\&quot; lt 1&quot;
-  literal set border 3 back ls 11			# get rid of upper + left border
+  literal set border 3 back ls 11	# get rid of upper + left border
   literal set tics nomirror
-  #add a slight grid to make it easier to follow the exact position of the curves
+  # add a slight grid to make it easier to follow the exact
+  # position of the curves
   printf &quot;set style line 12 lc rgb \&quot;#808080\&quot; lt 0 lw 1&quot;
   literal set grid back ls 12
   # Line Styles
-  printf &quot;set linetype 1 lc rgb 'grey' dt 2 lw %d&quot;, LW
-  printf &quot;set linetype 2 lc rgb 'black' lw %d&quot;, LW
-  printf &quot;set linetype 3 lc rgb 'grey' dt 2 lw %d&quot;, LW
-end plot --output=&quot;@fname&quot;
+  printf &quot;set linetype 1 lc rgb 'grey' dt 2 lw %d&quot;, self.lindewidth
+  printf &quot;set linetype 2 lc rgb 'black' lw %d&quot;, self.lindewidth
+  printf &quot;set linetype 3 lc rgb 'grey' dt 2 lw %d&quot;, self.lindewidth
+end plot --output=&quot;@filename&quot;
 set force_decpoint off
 </code>
 </gretl-function>
@@ -472,7 +446,7 @@ delete b.muhat
   <param name="ARbeta" type="matrix" const="true">
 <description>Coeff. vector of endogenous</description>
   </param>
-  <param name="X" type="list">
+  <param name="X" type="list" const="true">
 <description>rxlist ~ xlist of exogenous, -pmin to -p</description>
   </param>
   <param name="Xbeta" type="matrix" const="true">
@@ -605,6 +579,18 @@ DM = filter(impulse, ycoef, ARcoef)
 DM = (shocktype == 0) ? DM[,1] : DM[,2]
 </code>
 </gretl-function>
+<gretl-function name="plot_defaults" type="bundle" private="1">
+<code>/* Default parameter values of plotting dynamic multipliers. */
+bundle self
+string self.title = &quot;&quot;
+string self.ylabel = &quot;&quot;
+string self.xlabel = &quot;Horizon&quot;
+scalar self.fontsize = 10
+scalar self.lindewidth = 1
+string self.filename = &quot;display&quot;
+return self
+</code>
+</gretl-function>
 <sample-script>
 clear
 set verbose off
@@ -643,7 +629,7 @@ bundle b = setARDL(c, xlist, rxlist, pqmax, infocrit,\
 printf &quot;\nError status = %d.\n&quot;, b.error
 
 # Determine the optimal lag length (optional)
-lagselect(&amp;b)
+lagselectARDL(&amp;b)
 
 # Compute bootstrap dynamic multipliers
 runARDL(&amp;b)
@@ -667,44 +653,24 @@ series ECMrc = b.ECMrc	# restricted const.
 scatters ECM ECMrc --with-lines --output=display
 
 # Plot multipliers
-list Lplot = Lall - rxlist
-irf_plot(b.DM_inc, &quot;Response of c to shock in inc&quot;, &quot;Horizon&quot;, &quot;Response&quot;)
+bundle opts = _(title = &quot;Response of c to shock in inc&quot;,
+                xlabel = &quot;Horizon&quot;, ylabel = &quot;Response&quot;)
+irfARDL(b.DM_inc, opts)
 
 
 /* Activate if wished
+list Lplot = Lall - rxlist
 strings names_variables = varnames(Lplot)
 loop foreach i Lplot -q
-    string ylab = &quot;&quot;
-    string xlab = &quot;Horizon&quot;
-    # For the endogenous always use &quot;y&quot; irrespective of the actual name!
-    string shock = names_variables[i]
+    string shock = &quot;$i&quot;
+    bundle opts = _(title = sprintf(&quot;Shock of %s on c&quot;, &quot;$i&quot;))
+
     # Plot the bootstrap median and confidence interval of
     # the response of y on a change in &quot;shock&quot;
-    irf_plot(b[&quot;DM_@shock&quot;], &quot;Shock of @shock on c&quot;, xlab, ylab)
+    irfARDL(b[&quot;DM_@shock&quot;], opts)
 
     # Plot ALL bootstrap dynamic multipliers of the response of
-    # y on a change in &quot;shock&quot;
-    #irf_plot(b[&quot;DMraw_@shock&quot;])
-endloop
-*/
-
-
-/* Activate if wished
-#-----------------------------------------------------
-# Plot multipliers with additional options for drawing
-#-----------------------------------------------------
-strings names_variables = varnames(Lplot)
-scalar font = 11
-scalar lw = 2.0
-loop foreach i Lplot -q
-    string figpath = &quot;irf_$i.png&quot;
-    string title = sprintf(&quot;Response of %s to shock in %s&quot;,\
-            varnames(Lplot)[1], varnames(Lplot)[i])
-    string xlab = &quot;put a x label here&quot;
-    string ylab = &quot;put a y label here&quot;
-
-    string shock = names_variables[i]
-    irf_plotadv(b[&quot;DM_@shock&quot;], figpath, title, xlab, ylab, font, lw)
+    irfARDL(b[&quot;DMraw_@shock&quot;])
 endloop
 */
 </sample-script>
