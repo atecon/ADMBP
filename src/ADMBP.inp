@@ -72,9 +72,10 @@ function bundle setARDL (const series endogenous "Endogenous in levels",
     scalar b.addDET = 0
 
     if exists(rxlist)
-      if inlist(rxlist, "const")
+        b.with_intercept = inlist(rxlist, "const") ? TRUE : FALSE
+        b.with_trend = inlist(rxlist, "time") ? TRUE : FALSE
         scalar b.addDET = 1
-        rxlist -= const
+        rxlist -= const time
       endif
     else
       list rxlist = null
