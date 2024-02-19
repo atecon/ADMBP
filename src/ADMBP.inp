@@ -1,40 +1,19 @@
 function void lagselectARDL (bundle *b)
-    /* Determine optimal lag-length */
+    /* Retrieve optimal lag-length by means of some information criteria. */
 
     errorif(b.pq == 1, "You have to set the maximum lag-length 'pq' > 1.")
 
     series y = b.my
     list xlist = b.mx
     list rxlist = b.mrx
-    lags xlist
 
-    smpl +b.pq ;
-    matrix mat = zeros(b.pq,3)
-    row_labels = sprintf("%2.0f ", seq(1, b.pq))
+    list Xlist = xlist rxlist
 
-    loop i=1..b.pq -q
-        list Lx = xlist(b.pqmin to -$i) rxlist
-        catch var $i y ; Lx --silent
-        if $error
-            mat[i,] = mshape(NA, 1, 3)
-        else
-            mat[i,] = $aic ~ $bic ~ $hqc
-        endif
-    endloop
-    matrix b.pq = iminc(mat[,b.crit])
+    string opt_silent = b.verbose == FALSE ? "--silent" : "--quiet"
+    string opt_deterministics = b.with_trend == TRUE ? "--trend" : ""
 
-    cnameset(b.pq, "AIC BIC HQ")
-    rnameset(b.pq, row_labels)
-
-    if b.verbose
-        printf "\n*** Lag selection based on %d obs. ***\n", $nobs
-        printf "--------------------------------------\n"
-        cnameset(mat, "AIC BIC HQ")
-        rnameset(mat, row_labels)
-        printf "%12.4f\n", mat
-        printf "The selected information criteria suggests an ARDL(%d,%d) in levels.\n", b.pq, b.pq
-        printf "\n"
-    endif
+    var b.pq y ; Xlist --lagselect @opt_deterministics @opt_silent
+    scalar b.pq = iminc($test[,3 + b.crit])
 end function
 
 
@@ -69,22 +48,34 @@ function bundle setARDL (const series endogenous "Endogenous in levels",
 
     bundle b
 
-    scalar b.addDET = 0
+    scalar b.n_deterministics = 0
+    matrix b.mConstTrend = {}
 
     if exists(rxlist)
         b.with_intercept = inlist(rxlist, "const") ? TRUE : FALSE
         b.with_trend = inlist(rxlist, "time") ? TRUE : FALSE
         scalar b.addDET = 1
         rxlist -= const time
-      endif
+        b.n_deterministics = b.with_intercept + b.with_intercept
     else
       list rxlist = null
     endif
 
-    list Lall = endogenous xlist rxlist
+    strings cnames = empty
+    if b.with_intercept
+        b.mConstTrend ~= {const}
+        cnames += "const"
+    endif
+    if b.with_trend
+        b.mConstTrend ~= {time}
+        cnames += "time"
+    endif
+    cnameset(b.mConstTrend, cnames)
 
+    list ListConstTrend = mat2list(b.mConstTrend)
+
+    list Lall = endogenous ListConstTrend xlist rxlist
     scalar nobs = $nobs
-    list Lall = endogenous xlist rxlist
     smpl Lall --no-missing
     errorif($nobs < nobs, "Some of your series has missing values. Abort.")
 
@@ -96,7 +87,6 @@ function bundle setARDL (const series endogenous "Endogenous in levels",
     matrix b.mrx = rxlist
     b.nx = nelem(xlist)
     b.nrx = nelem(rxlist)
-
     b.pq = pqmax
     b.crit = crit
     b.condARDL = condARDL
@@ -124,9 +114,10 @@ function void runARDL (bundle *b)
 
     series endogenous = b.my
     list xlist = b.mx
-    list rxlist = b.mrx
+    list rxlist = mat2list(b.mrx)
+    list ListConstTrend = mat2list(b.mConstTrend)
+
     lags endogenous
-    list lDET = null
     string quiet = b.optsil
 
     if b.verbose
@@ -136,18 +127,19 @@ function void runARDL (bundle *b)
     # TODO: In principle we could provide an user-defined matrix before calling runARDL()
     # This could be helpful if want to provide a gappy coefficient matrix with some
     # zeros or fixed parameters (for whatever reasons).
-    if b.addDET == 1
-        list lDET += const
-    endif
 
-    ols endogenous lDET endogenous(-1 to -b.pq) xlist(b.pqmin to -b.pq) \
-        rxlist @quiet
+    ols endogenous ListConstTrend endogenous(-1 to -b.pq) \
+        xlist(b.pqmin to -b.pq) rxlist @quiet
 
     # Evaluate stability first
-    scalar b.ay = b.addDET + 1
-    scalar b.ey = b.ay+b.pq-1
+    scalar b.n_coeff = nelem($xlist)
+    scalar b.init_consttrend = 1
+    scalar b.last_consttrend = b.n_deterministics
+    scalar b.ay = b.init_consttrend + 1
+    scalar b.ey = b.ay + b.pq - 1
     b.ARcoef = $coeff[b.ay:b.ey]
     isstable = is_stable_model(b.ARcoef)
+    scalar nvars = 1 + b.n_deterministics + b.nx
 
     if !isstable
         print "Error: The model is unstable. Re-specify your model and try again"
@@ -157,26 +149,28 @@ function void runARDL (bundle *b)
     if b.error == FALSE
         scalar b.ax = b.ey + 1
         scalar b.ex = b.ax + b.nx * (b.condARDL + b.pq) - 1
-        # Zcoef: Const.~X1(0 to -pq)~...~Xk(0 to -pq)~rxlist (incl. time, dummies etc.)
-        if b.addDET > 0  # Deterministics + DL coeff needed for ysim()
+        # Zcoef: Const.~X1(0 to -pq)~...~Xk(0 to -pq)~rxlist( dummies etc.)
+        if nelem(ListConstTrend) > 0  # Deterministics + DL coeff needed for ysim()
             b.Zcoef = $coeff[1:(b.ay-1)] | $coeff[b.ey+1:]
         else
             b.Zcoef = $coeff[b.ey+1:]
         endif
-        b.muhat = {$uhat}
 
+        b.muhat = {$uhat}
         bootARDL(&b)
 
         # Compute median and confidence intervals of dynamic multipliers for each variable y and xlist.
 
         # DM_@vname: lower bound ~ median ~ upper bound
         matrix crit = { b.cilevel / 2, 0.5, (1 - b.cilevel / 2) }
-        loop i=1..(1+b.nx) -q
+
+        loop i=1..nvars
             string vname = b.names_variables[$i]
-            b.DM_@vname = quantile(b.DMraw_@vname', crit)'
+            b["DM_@vname"] = quantile(b.DMraw_@vname', crit)'
         endloop
+        stop
     else
-        loop i=1..(1+b.nx) -q
+        loop i=1..nvars
             string vname = b.names_variables[$i]
             matrix b.DM_@vname = NA
         endloop
@@ -215,51 +209,39 @@ end function
 
 
 function void bootARDL (bundle *b)
-    /* */
+    /* Bootsrap estimation. */
 
     series endogenous = b.my
     list xlist = b.mx
-    list rxlist = b.mrx
+    list rxlist = mat2list(b.mrx)
+    list ListConstTrend = mat2list(b.mConstTrend)
     series uhat = b.muhat
     string quiet = b.optsil
 
     lags endogenous xlist
     list Z = null
-    if b.addDET > 0
-        list Z += const
-    endif
-    list Z += xlist(b.pqmin to -b.pq) rxlist
-
+    list Z = ListConstTrend xlist(b.pqmin to -b.pq) rxlist
     matrix Xbeta = b.Zcoef
 
-    loop i=1..(1+b.nx) -q
+    # TODO: Make use of matrix array
+    loop i=1..(1+b.nx)
         # Store dynamic multipliers of each xlist regressor
-        matrix mout$i = zeros(1+b.horiz,b.bootrep)
+        matrix mout$i = zeros(1+b.horiz, b.bootrep)
     endloop
 
     scalar nloop = 1
     scalar failed = 0
-    scalar failed_bootstrap = 0
+    matrix BHAT_b = zeros(b.bootrep, b.n_coeff)
 
-    loop while nloop <= b.bootrep -q
+    loop while nloop <= b.bootrep
         series e = drawE(b)
         series y_b = varsimA(endogenous, b.ARcoef, Z, Xbeta, e, b.pq)
 
         lags y_b 1
         list ylist_b = y_b(-1 to -b.pq)
-
-        list features = null
-        if b.addDET == 1
-            features += const
-        endif
-        features += ylist_b xlist(b.pqmin to -b.pq) rxlist
+        list features = ListConstTrend ylist_b xlist(b.pqmin to -b.pq) rxlist
 
         ols y_b features --quiet
-
-        if nloop == 1
-            matrix BHAT_b = zeros(b.bootrep, nelem($xlist))
-        endif
-
         matrix ARcoef_b = $coeff[b.ay:b.ey]
         scalar isstable = is_stable_model(ARcoef_b)
 
@@ -269,7 +251,6 @@ function void bootARDL (bundle *b)
                 printf "\nError: %d pct. of the bootstrap iterations failed due to instability.\n",\
                     100*b.failstop
                 print "Error: Try to re-specify your model."
-                failed_bootstrap = 1
                 break
             endif
         else
@@ -277,15 +258,16 @@ function void bootARDL (bundle *b)
             shockbeta = $coeff[b.ax:b.ex]
             shockbeta = mshape(shockbeta, (b.condARDL + b.pq), b.nx)
 
-            loop i=1..(1+b.nx) -q
+            loop i=1..(1+b.nx)
                 matrix mtmp = zeros(b.horiz, 1)
+
                 if i == 1
                     # response of endogenous to a shock in endogenous
                     dmfilt(ARcoef_b, ARcoef_b, b.horiz, b.shocktype, &mtmp)
                 else		# response of y to a shock in x_i
-                    dmfilt(ARcoef_b, shockbeta[,i-1], b.horiz, b.shocktype, &mtmp)
+                    dmfilt(ARcoef_b, shockbeta[,i-1], b.horiz,
+                           b.shocktype, &mtmp)
                 endif
-
                 mout$i[,nloop] = mtmp
             endloop
 
@@ -294,7 +276,10 @@ function void bootARDL (bundle *b)
     endloop
 
     b.BHAT_b = BHAT_b
-    loop i=1..(1+b.nx) -q
+
+    scalar varcounter = 1
+    scalar nvars =
+    loop i=1..(1+b.nx)
         string vname = b.names_variables[$i]
         matrix b.DMraw_@vname = mout$i
     endloop
@@ -377,6 +362,7 @@ end function
 function void ECMinfo (bundle *b)
     /* */
 
+
     printf "\n******************************************\n"
     printf "    Error-correction model bootstrap\n"
     printf "    coefficient estimates\n"
@@ -388,19 +374,28 @@ function void ECMinfo (bundle *b)
     printf "\nLong-run multipliers (bootstrap values)\n"
     printf "----------------------------------------------\n"
     printf "                 Mean   Median     S.D.\n"
-    loop i=1..(1+b.nx) -q
-        string vname = b.names_variables[$i]
-        printf "%10s %10.4f %8.4f %8.4f\n", b.names_variables[$i],\
-            b.LRbeta_@vname[1], b.LRbeta_@vname[2], b.LRbeta_@vname[3]
+
+    # TODO: get rid of this: create a new array holding y and x series names onl
+    scalar varcounter = 1
+    loop i=1..(1+b.nx)
+        string vname = b.names_variables[varcounter]
+
+        printf "%10s %10.4f %8.4f %8.4f\n", vname, b.LRbeta_@vname[1],
+            b.LRbeta_@vname[2], b.LRbeta_@vname[3]
+
+        if i == 1
+            varcounter += 1 + b.n_deterministics  # skip "const" and "time"
+        else
+            varcounter++
+        endif
     endloop
 
     printf "\nBewley's long-run multipliers (2SLS point estimates)\n"
     printf "----------------------------------------------\n"
     printf "               Coeff.     S.D. \n"
-    loop i=2..(1+b.nx) -q
-        string vname = b.names_variables[$i]
-        printf "%10s %10.4f %8.4f\n", b.names_variables[$i],\
-            b.LRBew[i-1], b.LRBewSE[i-1]
+    loop i=2..(1+b.nx)
+        string vname = b.names_variables[b.n_deterministics + $i]
+        printf "%10s %10.4f %8.4f\n", vname, b.LRBew[i-1], b.LRBewSE[i-1]
     endloop
     printf "******************************************\n"
 end function
@@ -411,27 +406,43 @@ function void LRbeta (bundle *b)
 
     # RHO = -[1-SUM_j=1^pq a_{t-j}]
     matrix ybeta = b.BHAT_b[,b.ay:b.ey]
-    matrix b.RHO_b = -(1-sumr(ybeta))
+    matrix b.RHO_b = -(1 - sumr(ybeta))
     matrix b.RHO = meanc(b.RHO_b) ~ quantile(b.RHO_b,0.5) ~ sd(b.RHO_b)
     cnameset(b.RHO, "Mean Median SD")
 
     # Long-run multiplier
     # b_i = (SUM_j=0^pq c_{t-j}) / (1 - rho)
+    scalar nvars = b.nx + b.n_deterministics
     matrix xbetas = b.BHAT_b[,b.ax:b.ex]
     scalar in = 1
+#    scalar varcounter = 1
 
-    loop i=1..(1+b.nx) -q
-        string vname = b.names_variables[$i]
+    loop i=1..nvars
+        string vname = b.names_variables[i]
+
         if i == 1
             # long-run multiplier of a change in y on y
             matrix b["LRbeta_@vname_b"] = sumr(ybeta) ./ (1 .- sumr(ybeta))
+ #           varcounter += 1 + b.n_deterministics # skip "const" and "time"
         else
-            out = in + (b.condARDL + b.pq) - 1
-            cmat = xbetas[,in:out]
+            if vname == "const" || vname == "column1" || vname == "time"
+                out = $i
+            else
+                out = in + (b.condARDL + b.pq) - 1
+                cmat = xbetas[,in:out]
+            endif
 
             # long-run multiplier of a change in x_i on y
-            b["LRbeta_@vname_b"] = sumr(cmat) ./ (1 .- sumr(ybeta))
-            in += b.condARDL + b.pq
+            string key = sprintf("LRbeta_%s_b", vname)
+            printf "\nkey = %s", key
+            b["@key"] = sumr(cmat) ./ (1 .- sumr(ybeta))
+
+            if vname == "const" || vname == "column1" || vname == "time"
+                in++
+            else
+                in += b.condARDL + b.pq
+            endif
+  #          varcounter++
         endif
 
         matrix b["LRbeta_@vname"] = mean(b["LRbeta_@vname_b"]) ~ \
@@ -439,7 +450,7 @@ function void LRbeta (bundle *b)
                                     sd(b["LRbeta_@vname_b"])
         cnameset(b["LRbeta_@vname"], "Mean Median SD")
     endloop
-
+stop
     # Compute LR coeff and SEs using Bewley's IV estim.
     Bewley(&b)
 
@@ -468,7 +479,8 @@ function void Bewley (bundle *b)
     series dY = diff(endogenous)
     list xlist = b.mx
     list Dxlist = diff(xlist)
-    list rxlist = b.mrx
+    list rxlist = mat2list(b.mrx)
+    list ListConstTrend = mat2list(b.mConstTrend)
 
     lags endogenous xlist
 
@@ -476,22 +488,17 @@ function void Bewley (bundle *b)
         ARDLinfo(&b)
     endif
 
-    list lDET = null
-    if b.addDET == 1
-        lDET += const
-    endif
-
     # Set the regressors
-    pmax_exog = b.pq - 1
+    scalar pmax_exog = b.pq - 1
 
-    list Instruments = lDET endogenous(-1 to -b.pq) \
+    list Instruments = ListConstTrend endogenous(-1 to -b.pq) \
                         xlist(b.pqmin to -b.pq) rxlist
-    list Exogenous = lDET xlist dY(b.pqmin to -pmax_exog) \
+    list Exogenous = ListConstTrend xlist dY(b.pqmin to -pmax_exog) \
                      Dxlist(b.pqmin to -pmax_exog) rxlist
 
     tsls endogenous Exogenous ; Instruments --robust --quiet --no-tests
 
-    scalar ax = 1 + nelem(lDET)
+    scalar ax = 1 + nelem(ListConstTrend)
     scalar ex = ax + nelem(xlist) - 1
     matrix b.LRBew = $coeff[ax:ex]
     matrix b.LRBewSE = $stderr[ax:ex]
@@ -517,10 +524,11 @@ function void ECterm (bundle *b)
 
     series endogenous = b.my
     list xlist = b.mx
+    list ListConstTrend = b.mConstTrend
     scalar nx = nelem(xlist)
     matrix beta = zeros(nx, 1)
 
-    loop i=1..nx -q
+    loop i=1..nx
         string vname = b.names_variables[1+$i]
         beta[i] = b.LRbeta_@vname[2]		# based on median value
     endloop
@@ -532,9 +540,10 @@ function void ECterm (bundle *b)
 
     #setinfo b.ECM --description="EC unrestricted const. "
 
-    if b.addDET == 1
+    if b.with_intercept == 1
         scalar a0 = quantile(b.BHAT_b[,1], 0.5)	 # bootstrap median constant
-        series b.ECMrc = endogenous - lincomb(LR,beta) - a0 / b.RHO[2]	# Case 2
+        # RHO[2] refers to the median
+        series b.ECMrc -= a0 / b.RHO[2]	         # Case 2
         #setinfo b.ECMrc --description="EC restricted const."
     endif
 end function
