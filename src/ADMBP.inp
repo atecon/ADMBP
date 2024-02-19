@@ -325,10 +325,9 @@ function series varsimA (const series endogenous,
 
     series m = lincomb(X, Xbeta)
     scalar T = minr(rows({e}) ~ rows({m}))
+    matrix A = ARbeta'
     if p > 1
-        matrix A = ARbeta' | (I(p-1) ~ 0)
-    else
-        matrix A = ARbeta'
+        matrix A |= (I(p-1) ~ 0)
     endif
 
     matrix y0 = mreverse(my[1:p])'
@@ -485,7 +484,8 @@ function void Bewley (bundle *b)
     # Set the regressors
     pmax_exog = b.pq - 1
 
-    list Instruments = lDET endogenous(-1 to -b.pq) xlist(b.pqmin to -b.pq) rxlist
+    list Instruments = lDET endogenous(-1 to -b.pq) \
+                        xlist(b.pqmin to -b.pq) rxlist
     list Exogenous = lDET xlist dY(b.pqmin to -pmax_exog) \
                      Dxlist(b.pqmin to -pmax_exog) rxlist
 
