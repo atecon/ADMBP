@@ -1,7 +1,9 @@
 function void lagselectARDL (bundle *b)
-    /* Retrieve optimal lag-length by means of some information criteria. */
+    /* Retrieve optimal lag-length by means of some information lag_criteriaeria. */
 
-    errorif(b.pq == 1, "You have to set the maximum lag-length 'pq' > 1.")
+    # TODO: make use of "criteria" package which includes AICc
+
+    errorif(self.max_lag == 1, "You have to set the maximum lag-length 'pq' > 1.")
 
     series y = b.my
     list xlist = b.mx
@@ -12,8 +14,8 @@ function void lagselectARDL (bundle *b)
     string opt_silent = b.verbose == FALSE ? "--silent" : "--quiet"
     string opt_deterministics = b.with_trend == TRUE ? "--trend" : ""
 
-    var b.pq y ; Xlist --lagselect @opt_deterministics @opt_silent
-    scalar b.pq = iminc($test[,3 + b.crit])
+    var self.max_lag y ; Xlist --lagselect @opt_deterministics @opt_silent
+    scalar self.max_lag = iminc($test[,3 + b.lag_criteria])
 end function
 
 
@@ -31,74 +33,130 @@ function scalar is_stable_model (const matrix ARcoef)
 end function
 
 
-function bundle setARDL (const series endogenous "Endogenous in levels",
-                         list xlist "Exogenous in levels",
-                         list rxlist[null] "Restricted I0s excl. intercept",
-                         int pqmax[1::4] "Max. lag-length in levels",
-                         int crit[1:3:1] "Info criteria" {"AIC", "BIC", "HQ"},
-                         bool condARDL[1] "Consider contemporaneous effects of xlist",
-                         int shocktype[0:1:] "Shocktype" {"transitory", "permanent"},
-                         int btype[0:4:1] "Bootstrap type" {"parametric", "non-parametric", "wild uniform", "wild Rademacher", "block-boots."},
-                         int bootrep[99::999] "No. of bootstrap iterations",
-                         int horiz[1::12] "Max. horizon periods",
-                         scalar cilevel[0.01:0.99:0.1] "Width confidence intervals 1-cilevel",
-                         bool verbose[1] "Print details",
-                         scalar failstop[0.01:0.9:0.2] "Fraction of failed bootstrap iterations before full stop")
+function bundle get_defaults (void)
+    /* Default parameter values for ARDL estimation. */
+
+    bundle self = empty
+    scalar self.max_lag = $pd
+    string self.lag_criteria = "AIC"
+    scalar self.conditional_model = FALSE
+    scalar self.permanent_shock = FALSE
+    string self.boot_type = "block"  # "parametric", "non-parametric", "wild uniform", "wild Rademacher", "block-boots."
+    scalar self.boot_reps = 999
+    scalar self.max_horizon = 12
+    scalar self.cilevel = 0.95
+    scalar self.verbose = 1
+    scalar self.stopping_criteria = 0.2
+    # CASES: "nc": no const., "uc": unrestricted const., "rc": restricted const.,
+    # "crt": unrest. const + restr. trend, "ct": unrest. const + unrestr. trend
+    # This is following gretl's vecm command.
+    string self.det_case = "uc"
+    scalar self.error = FALSE
+
+    return self
+end function
+
+function string get_shocktype (const int permanent_shock)
+    /* Get shock type. */
+    string shocktype = (permanent_shock == 0) ? "temporary" : "permanent"
+    return shocktype
+end function
+
+function string get_bootstrap_type (const string boot_type)
+    /* Get bootstrap type as full string. */
+
+    if self.boot_type == "parametric"
+        string ret = "parametric"
+    elif self.boot_type == "non-parametric"
+        string ret = "non-parametric"
+    elif self.boot_type == "wild-uniform"
+        string ret = "wild (uniform)"
+    elif self.boot_type == "wild-rademacher"
+        string ret = "wild (Rademacher)"
+    elif self.boot_type == "block"
+        string ret = "block-bootstrap"
+    endif
+
+    return ret
+end function
+
+
+function scalar missings_exist (const list All)
+    /* Check for sample validity. */
+
+    scalar has_missings = FALSE
+    scalar nobs = $nobs
+    smpl All --no-missing
+    scalar nobs_new = $nobs
+
+    if nobs != nobs_new
+        printf "Error: Missing values in the sample. Please remove them and try again."
+        return TRUE
+    else
+        return FALSE
+    endif
+end function
+
+# add function add_varnames()
+function void add_varnames (bundle *self,
+                            const series target,
+                            const list xlist,
+                            const list rxlist)
+    /* Add variable names to the bundle. */
+
+    self.vname_target = argname(target)
+    self.vname_xlist = varnames(xlist)
+    self.vname_rxlist = varnames(rxlist)
+end function
+
+
+function bundle est_ardl (const series target "Endogenous in levels",
+                          list xlist "Exogenous in levels",
+                          list rxlist[null] "Restricted I0s excl. intercept"
+                          bundle self[null])
     /* Setup model for estimation step. */
 
-    bundle b
-
-    scalar b.n_deterministics = 0
-    matrix b.mConstTrend = {}
-
-    if exists(rxlist)
-        b.with_intercept = inlist(rxlist, "const") ? TRUE : FALSE
-        b.with_trend = inlist(rxlist, "time") ? TRUE : FALSE
-        scalar b.addDET = 1
-        rxlist -= const time
-        b.n_deterministics = b.with_intercept + b.with_intercept
+    if exists(self)
+        self = self + get_defaults()
     else
-      list rxlist = null
+        bundle self = get_defaults()
     endif
 
-    strings cnames = empty
-    if b.with_intercept
-        b.mConstTrend ~= {const}
-        cnames += "const"
+    # TODO: add a check for any deterministics in xlist and rxlist
+    # We will add those
+
+    # TODO: in principle we could internally manage missings, but I think the user
+    # should be aware of this and remove them before calling setARDL()
+    list All = target xlist rxlist
+    scalar err = missings_exist(All)
+    if err == TRUE
+        self.error = TRUE
+        return self
     endif
-    if b.with_trend
-        b.mConstTrend ~= {time}
-        cnames += "time"
-    endif
-    cnameset(b.mConstTrend, cnames)
 
-    list ListConstTrend = mat2list(b.mConstTrend)
+    add_varnames(&self, target, xlist, rxlist)
 
-    list Lall = endogenous ListConstTrend xlist rxlist
-    scalar nobs = $nobs
-    smpl Lall --no-missing
-    errorif($nobs < nobs, "Some of your series has missing values. Abort.")
 
-    strings b.names_variables = varnames(Lall)
-    b.names_variables[1] = argname(endogenous)
+    print_ardl_info(self)
 
-    matrix b.my = {endogenous}
+
+    matrix b.my = {target}
     matrix b.mx = xlist
     matrix b.mrx = rxlist
     b.nx = nelem(xlist)
     b.nrx = nelem(rxlist)
-    b.pq = pqmax
-    b.crit = crit
-    b.condARDL = condARDL
+    self.max_lag = maxlag
+    b.lag_criteria = lag_criteria
+    b.conditional_model = conditional_model
 
-    scalar pqmin = (b.condARDL == 1) ? 0 : -1
-    b.pqmin = pqmin
+    scalar pqmin = (b.conditional_model == 1) ? 0 : -1
+    self.max_lagmin = pqmin
     b.cilevel = cilevel
-    b.btype = btype
-    b.bootrep = bootrep
-    b.horiz = horiz
-    b.shocktype = shocktype
-    b.failstop = failstop
+    b.boot_type = boot_type
+    b.boot_reps = boot_reps
+    b.max_horizon = max_horizon
+    b.permanent_shock = permanent_shock
+    b.stopping_criteria = stopping_criteria
     b.verbose = verbose
     string b.optsil = (verbose == 1) ? "" : "--quiet"
     scalar b.error = FALSE
@@ -112,31 +170,31 @@ function void runARDL (bundle *b)
 
     errorif(inbundle(b, "finset"), "Before calling runARDL() a second time, call setARDL() first again.")
 
-    series endogenous = b.my
+    series target = b.my
     list xlist = b.mx
     list rxlist = mat2list(b.mrx)
     list ListConstTrend = mat2list(b.mConstTrend)
 
-    lags endogenous
+    lags target
     string quiet = b.optsil
 
     if b.verbose
-        ARDLinfo(&b)
+        print_ardl_info(&b)
     endif
 
     # TODO: In principle we could provide an user-defined matrix before calling runARDL()
     # This could be helpful if want to provide a gappy coefficient matrix with some
     # zeros or fixed parameters (for whatever reasons).
 
-    ols endogenous ListConstTrend endogenous(-1 to -b.pq) \
-        xlist(b.pqmin to -b.pq) rxlist @quiet
+    ols target ListConstTrend target(-1 to -self.max_lag) \
+        xlist(self.max_lagmin to -self.max_lag) rxlist @quiet
 
     # Evaluate stability first
     scalar b.n_coeff = nelem($xlist)
     scalar b.init_consttrend = 1
     scalar b.last_consttrend = b.n_deterministics
     scalar b.ay = b.init_consttrend + 1
-    scalar b.ey = b.ay + b.pq - 1
+    scalar b.ey = b.ay + self.max_lag - 1
     b.ARcoef = $coeff[b.ay:b.ey]
     isstable = is_stable_model(b.ARcoef)
     scalar nvars = 1 + b.n_deterministics + b.nx
@@ -148,7 +206,7 @@ function void runARDL (bundle *b)
 
     if b.error == FALSE
         scalar b.ax = b.ey + 1
-        scalar b.ex = b.ax + b.nx * (b.condARDL + b.pq) - 1
+        scalar b.ex = b.ax + b.nx * (b.conditional_model + self.max_lag) - 1
         # Zcoef: Const.~X1(0 to -pq)~...~Xk(0 to -pq)~rxlist( dummies etc.)
         if nelem(ListConstTrend) > 0  # Deterministics + DL coeff needed for ysim()
             b.Zcoef = $coeff[1:(b.ay-1)] | $coeff[b.ey+1:]
@@ -162,11 +220,11 @@ function void runARDL (bundle *b)
         # Compute median and confidence intervals of dynamic multipliers for each variable y and xlist.
 
         # DM_@vname: lower bound ~ median ~ upper bound
-        matrix crit = { b.cilevel / 2, 0.5, (1 - b.cilevel / 2) }
+        matrix lag_criteria = { b.cilevel / 2, 0.5, (1 - b.cilevel / 2) }
 
         loop i=1..nvars
             string vname = b.names_variables[$i]
-            b["DM_@vname"] = quantile(b.DMraw_@vname', crit)'
+            b["DM_@vname"] = quantile(b.DMraw_@vname', lag_criteria)'
         endloop
         stop
     else
@@ -187,19 +245,19 @@ function series drawE (const bundle b)
 
     #uhat = uhat-mean(uhat)	# FIXME: is re-centering needed here??
 
-    if b.btype == 0
+    if b.boot_type == 0
         series e = normal(0, sd(uhat))	     # parametric bootstrap
-    elif b.btype == 1
+    elif b.boot_type == 1
         # draw from estimated residuals by resampling
         # (may suffer from serial correl.)
         series e = resample(uhat)
-    elif b.btype == 2						# wild uniform
+    elif b.boot_type == 2						# wild uniform
         series e = resample(uhat) * uniform(0,1)
-    elif b.btype == 3	# Use Rademacher distrib. instead of uniform(0,1)
+    elif b.boot_type == 3	# Use Rademacher distrib. instead of uniform(0,1)
         series Rad = uniform(0,1)
         Rad = -1 * (Rad <= 0.5) + (Rad > 0.5)
         series e = resample(uhat) * Rad
-    elif b.btype == 4						# block bootstrap
+    elif b.boot_type == 4						# block bootstrap
         series e = SB(b.muhat, 0)
     endif
 
@@ -211,35 +269,35 @@ end function
 function void bootARDL (bundle *b)
     /* Bootsrap estimation. */
 
-    series endogenous = b.my
+    series target = b.my
     list xlist = b.mx
     list rxlist = mat2list(b.mrx)
     list ListConstTrend = mat2list(b.mConstTrend)
     series uhat = b.muhat
     string quiet = b.optsil
 
-    lags endogenous xlist
+    lags target xlist
     list Z = null
-    list Z = ListConstTrend xlist(b.pqmin to -b.pq) rxlist
+    list Z = ListConstTrend xlist(self.max_lagmin to -self.max_lag) rxlist
     matrix Xbeta = b.Zcoef
 
     # TODO: Make use of matrix array
     loop i=1..(1+b.nx)
         # Store dynamic multipliers of each xlist regressor
-        matrix mout$i = zeros(1+b.horiz, b.bootrep)
+        matrix mout$i = zeros(1+b.max_horizon, b.boot_reps)
     endloop
 
     scalar nloop = 1
     scalar failed = 0
-    matrix BHAT_b = zeros(b.bootrep, b.n_coeff)
+    matrix BHAT_b = zeros(b.boot_reps, b.n_coeff)
 
-    loop while nloop <= b.bootrep
+    loop while nloop <= b.boot_reps
         series e = drawE(b)
-        series y_b = varsimA(endogenous, b.ARcoef, Z, Xbeta, e, b.pq)
+        series y_b = varsimA(target, b.ARcoef, Z, Xbeta, e, self.max_lag)
 
         lags y_b 1
-        list ylist_b = y_b(-1 to -b.pq)
-        list features = ListConstTrend ylist_b xlist(b.pqmin to -b.pq) rxlist
+        list ylist_b = y_b(-1 to -self.max_lag)
+        list features = ListConstTrend ylist_b xlist(self.max_lagmin to -self.max_lag) rxlist
 
         ols y_b features --quiet
         matrix ARcoef_b = $coeff[b.ay:b.ey]
@@ -247,26 +305,26 @@ function void bootARDL (bundle *b)
 
         if !isstable
             failed++
-            if (failed / b.bootrep) >= b.failstop
+            if (failed / b.boot_reps) >= b.stopping_criteria
                 printf "\nError: %d pct. of the bootstrap iterations failed due to instability.\n",\
-                    100*b.failstop
+                    100*b.stopping_criteria
                 print "Error: Try to re-specify your model."
                 break
             endif
         else
             BHAT_b[nloop,] = $coeff'
             shockbeta = $coeff[b.ax:b.ex]
-            shockbeta = mshape(shockbeta, (b.condARDL + b.pq), b.nx)
+            shockbeta = mshape(shockbeta, (b.conditional_model + self.max_lag), b.nx)
 
             loop i=1..(1+b.nx)
-                matrix mtmp = zeros(b.horiz, 1)
+                matrix mtmp = zeros(b.max_horizon, 1)
 
                 if i == 1
-                    # response of endogenous to a shock in endogenous
-                    dmfilt(ARcoef_b, ARcoef_b, b.horiz, b.shocktype, &mtmp)
+                    # response of target to a shock in target
+                    dmfilt(ARcoef_b, ARcoef_b, b.max_horizon, b.permanent_shock, &mtmp)
                 else		# response of y to a shock in x_i
-                    dmfilt(ARcoef_b, shockbeta[,i-1], b.horiz,
-                           b.shocktype, &mtmp)
+                    dmfilt(ARcoef_b, shockbeta[,i-1], b.max_horizon,
+                           b.permanent_shock, &mtmp)
                 endif
                 mout$i[,nloop] = mtmp
             endloop
@@ -286,27 +344,27 @@ function void bootARDL (bundle *b)
 
     # Clean up the bundle
     delete b.nrx
-    delete b.crit
+    delete b.lag_criteria
     #delete b.mrx
     delete b.Zcoef
-    #delete b.btype
-    #delete b.shocktype
+    #delete b.boot_type
+    #delete b.permanent_shock
     delete b.ARcoef
     #delete b.addDET
-    #delete b.pqmin
+    #delete self.max_lagmin
     delete b.muhat
 end function
 
 
-function series varsimA (const series endogenous,
-                       const matrix ARbeta "Coeff. vector of endogenous",
+function series varsimA (const series target,
+                       const matrix ARbeta "Coeff. vector of target",
                        const list X "rxlist ~ xlist of exogenous, -pmin to -p",
                        const matrix Xbeta "coeff vector of Xs",
                        const series e "innovations",
                        int p[1::] "Lag length")
     /* Simulate VAR. Thankfully borrowed from Jack. */
 
-    matrix my = {endogenous}
+    matrix my = {target}
 
     series m = lincomb(X, Xbeta)
     scalar T = minr(rows({e}) ~ rows({m}))
@@ -329,33 +387,19 @@ function series varsimA (const series endogenous,
 end function
 
 
-function void ARDLinfo (bundle *b)
+function void print_ardl_info (const bundle self)
     /* */
 
     printf "\n******************************************\n"
-    printf "    ARDL (%d) in levels regression\n", b.pq
+    printf "    ARDL (max-lag = %d) in levels regression\n", self.max_lag
     printf "******************************************\n"
     printf "\nSettings for dynamic multiplier computation\n"
 
-    string stype = (b.shocktype == 0) ? "temporary" : "permanent"
+    printf "\nShock type: %s\n", get_shocktype(self.permanent_shock)
+    printf "Bootstrap iterations: %d\n", self.boot_reps
 
-    printf "\nShock type: %s\n", stype
-    printf "Bootstrap iterations: %d\n", b.bootrep
-
-    if b.btype == 0
-        string btype = "parametric"
-    elif b.btype == 1
-        string btype = "non-parametric"
-    elif b.btype == 2
-        string btype = "wild (uniform)"
-    elif b.btype == 3
-        string btype = "wild (Rademacher)"
-    elif b.btype == 4
-        string btype = "block-bootstrap"
-    endif
-
-    printf "Bootstrap type: %s\n", btype
-    printf "Confidence interval: %.2f\n", (1 - b.cilevel)
+    printf "Bootstrap type: %s\n", get_bootstrap_type(self.boot_type)
+    printf "Confidence interval: %.2f\n", (1 - self.cilevel)
 end function
 
 
@@ -428,7 +472,7 @@ function void LRbeta (bundle *b)
             if vname == "const" || vname == "column1" || vname == "time"
                 out = $i
             else
-                out = in + (b.condARDL + b.pq) - 1
+                out = in + (b.conditional_model + self.max_lag) - 1
                 cmat = xbetas[,in:out]
             endif
 
@@ -440,7 +484,7 @@ function void LRbeta (bundle *b)
             if vname == "const" || vname == "column1" || vname == "time"
                 in++
             else
-                in += b.condARDL + b.pq
+                in += b.conditional_model + self.max_lag
             endif
   #          varcounter++
         endif
@@ -461,12 +505,12 @@ stop
 
      # Bundle cleanup
      delete b.nx
-     delete b.pq
+     delete self.max_lag
      delete b.ey
      delete b.ax
      delete b.ex
      delete b.ay
-     delete b.condARDL
+     delete b.conditional_model
      delete b.cilevel
      delete b.optsil
 end function
@@ -475,28 +519,28 @@ end function
 function void Bewley (bundle *b)
     /* Estimate the long-run multiplier and associated S.E. using the IV approach by Bewley (1979) */
 
-    series endogenous = b.my
-    series dY = diff(endogenous)
+    series target = b.my
+    series dY = diff(target)
     list xlist = b.mx
     list Dxlist = diff(xlist)
     list rxlist = mat2list(b.mrx)
     list ListConstTrend = mat2list(b.mConstTrend)
 
-    lags endogenous xlist
+    lags target xlist
 
     if b.optsil == ""
-        ARDLinfo(&b)
+        print_ardl_info(&b)
     endif
 
     # Set the regressors
-    scalar pmax_exog = b.pq - 1
+    scalar pmax_exog = self.max_lag - 1
 
-    list Instruments = ListConstTrend endogenous(-1 to -b.pq) \
-                        xlist(b.pqmin to -b.pq) rxlist
-    list Exogenous = ListConstTrend xlist dY(b.pqmin to -pmax_exog) \
-                     Dxlist(b.pqmin to -pmax_exog) rxlist
+    list Instruments = ListConstTrend target(-1 to -self.max_lag) \
+                        xlist(self.max_lagmin to -self.max_lag) rxlist
+    list Exogenous = ListConstTrend xlist dY(self.max_lagmin to -pmax_exog) \
+                     Dxlist(self.max_lagmin to -pmax_exog) rxlist
 
-    tsls endogenous Exogenous ; Instruments --robust --quiet --no-tests
+    tsls target Exogenous ; Instruments --robust --quiet --no-tests
 
     scalar ax = 1 + nelem(ListConstTrend)
     scalar ex = ax + nelem(xlist) - 1
@@ -522,7 +566,7 @@ function void ECterm (bundle *b)
     # --> ECt = yt - b'x_t
     # TODO: add constant cases!
 
-    series endogenous = b.my
+    series target = b.my
     list xlist = b.mx
     list ListConstTrend = b.mConstTrend
     scalar nx = nelem(xlist)
@@ -534,9 +578,9 @@ function void ECterm (bundle *b)
     endloop
 
     list LR = xlist
-    list lall = endogenous LR
+    list lall = target LR
     matrix X = {lall}
-    series b.ECM = endogenous - lincomb(LR,beta)
+    series b.ECM = target - lincomb(LR,beta)
 
     #setinfo b.ECM --description="EC unrestricted const. "
 
@@ -551,16 +595,16 @@ end function
 
 function void dmfilt (const matrix ARcoef,
                       const matrix ycoef,
-                      int horiz,
-                      int shocktype,
+                      int max_horizon,
+                      int permanent_shock,
                       matrix *DM)
     /* Compute dynamic multipliers. */
 
-    matrix impulse = ones(horiz + 1, 2)
+    matrix impulse = ones(max_horizon + 1, 2)
     impulse[2:,1] = 0
     DM = filter(impulse, ycoef, ARcoef)
 
-    DM = (shocktype == 0) ? DM[,1] : DM[,2]
+    DM = (permanent_shock == 0) ? DM[,1] : DM[,2]
 end function
 
 
@@ -570,7 +614,7 @@ function bundle plot_defaults (void)
     bundle self
     string self.title = ""
     string self.ylabel = ""
-    string self.xlabel = "Horizon"
+    string self.xlabel = "max_horizonon"
     scalar self.fontsize = 10
     scalar self.lindewidth = 1
     string self.filename = "display"
