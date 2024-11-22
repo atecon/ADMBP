@@ -19,16 +19,17 @@ function void lagselectARDL (bundle *b)
 end function
 
 
-function scalar is_stable_model (const matrix ARcoef)
+function scalar model_is_stable (matrix ARcoef)
   /* Check for dynamic stability.
   return: 1 if stable, otherwise 0. */
 
-  scalar value = 1 - sum(ARcoef)
+  matrix ARcoef = vec(ARcoef)
+  scalar value = 1 - sumc(ARcoef)
 
   if -value < -0.00001
-      return 1
+      return TRUE
   else
-      return 0
+      return FALSE
   endif
 end function
 
@@ -65,15 +66,15 @@ end function
 function string get_bootstrap_type (const string boot_type)
     /* Get bootstrap type as full string. */
 
-    if self.boot_type == "parametric"
+    if boot_type == "parametric"
         string ret = "parametric"
-    elif self.boot_type == "non-parametric"
+    elif boot_type == "non-parametric"
         string ret = "non-parametric"
-    elif self.boot_type == "wild-uniform"
+    elif boot_type == "wild-uniform"
         string ret = "wild (uniform)"
-    elif self.boot_type == "wild-rademacher"
+    elif boot_type == "wild-rademacher"
         string ret = "wild (Rademacher)"
-    elif self.boot_type == "block"
+    elif boot_type == "block"
         string ret = "block-bootstrap"
     endif
 
@@ -111,10 +112,10 @@ end function
 
 
 function bundle est_ardl (const series target "Endogenous in levels",
-                          list xlist "Exogenous in levels",
-                          list rxlist[null] "Restricted I0s excl. intercept"
+                          list xlist "Exogenous in levels (lags autom. created)",
+                          list rxlist[null] "Exogenous in levels (no lags created)",
                           bundle self[null])
-    /* Setup model for estimation step. */
+    /* Compute ARDL model regression and dynamic multipliers */
 
     if exists(self)
         self = self + get_defaults()
@@ -127,6 +128,10 @@ function bundle est_ardl (const series target "Endogenous in levels",
 
     # TODO: in principle we could internally manage missings, but I think the user
     # should be aware of this and remove them before calling setARDL()
+
+    list xlist = get_lags(xlist, self.max_lag, self.conditional_model)
+
+    smpl +self.max_lag ;
     list All = target xlist rxlist
     scalar err = missings_exist(All)
     if err == TRUE
@@ -135,33 +140,57 @@ function bundle est_ardl (const series target "Endogenous in levels",
     endif
 
     add_varnames(&self, target, xlist, rxlist)
-
-
     print_ardl_info(self)
+    bundle self.Model = estimate_var(target, xlist, rxlist, self)
+
+    scalar model_is_stable = model_is_stable(get_ar_coeffs(self.Model))
+    if !model_is_stable
+        print "Error: The model is unstable. Re-specify your model and try again."
+        self.error = TRUE
+        return self
+    endif
+
+    print self.Model
 
 
-    matrix b.my = {target}
-    matrix b.mx = xlist
-    matrix b.mrx = rxlist
-    b.nx = nelem(xlist)
-    b.nrx = nelem(rxlist)
-    self.max_lag = maxlag
-    b.lag_criteria = lag_criteria
-    b.conditional_model = conditional_model
-
-    scalar pqmin = (b.conditional_model == 1) ? 0 : -1
-    self.max_lagmin = pqmin
-    b.cilevel = cilevel
-    b.boot_type = boot_type
-    b.boot_reps = boot_reps
-    b.max_horizon = max_horizon
-    b.permanent_shock = permanent_shock
-    b.stopping_criteria = stopping_criteria
-    b.verbose = verbose
-    string b.optsil = (verbose == 1) ? "" : "--quiet"
-    scalar b.error = FALSE
 
     return b
+end function
+
+function matrix get_ar_coeffs (const bundle Model)
+    /* Get AR coefficients. */
+    return vec(Model.A[1,])
+end function
+
+function bundle collect_post_est_info (const bundle Model)
+
+    bundle self = empty
+    matrix self.ar_coefficients = Model.A[1,]'
+    matrix self.uhat = Model.uhat
+
+end function
+
+function list get_lags (const list xlist, const scalar max_lag, const scalar conditional_model)
+    /* Create lags for exogenous variables. */
+
+    scalar pqmin = (conditional_model == 1) ? 0 : 1
+    list xlist_with_lags = xlist(-pqmin to -max_lag)
+
+    return xlist_with_lags
+end function
+
+function bundle estimate_var (const series target "Endogenous in levels",
+                              const list xlist "Exogenous in levels",
+                              list rxlist[null] "Restricted I0s excl. intercept",
+                              const bundle self)
+    /* Estimate a 1-dimensional VARX model. */
+
+    list Exog = xlist rxlist
+
+    # TODO: add further options for VARX estimation such as the deterministics
+    var self.max_lag target ; xlist rxlist #--quiet
+
+    return $system
 end function
 
 
@@ -196,7 +225,7 @@ function void runARDL (bundle *b)
     scalar b.ay = b.init_consttrend + 1
     scalar b.ey = b.ay + self.max_lag - 1
     b.ARcoef = $coeff[b.ay:b.ey]
-    isstable = is_stable_model(b.ARcoef)
+    isstable = model_is_stable(b.ARcoef)
     scalar nvars = 1 + b.n_deterministics + b.nx
 
     if !isstable
@@ -301,7 +330,7 @@ function void bootARDL (bundle *b)
 
         ols y_b features --quiet
         matrix ARcoef_b = $coeff[b.ay:b.ey]
-        scalar isstable = is_stable_model(ARcoef_b)
+        scalar isstable = model_is_stable(ARcoef_b)
 
         if !isstable
             failed++
@@ -388,7 +417,7 @@ end function
 
 
 function void print_ardl_info (const bundle self)
-    /* */
+    /* Print ARDL information. */
 
     printf "\n******************************************\n"
     printf "    ARDL (max-lag = %d) in levels regression\n", self.max_lag
@@ -399,7 +428,7 @@ function void print_ardl_info (const bundle self)
     printf "Bootstrap iterations: %d\n", self.boot_reps
 
     printf "Bootstrap type: %s\n", get_bootstrap_type(self.boot_type)
-    printf "Confidence interval: %.2f\n", (1 - self.cilevel)
+    printf "Confidence interval (1-alpha): %.2f\n", (1 - self.cilevel)
 end function
 
 
