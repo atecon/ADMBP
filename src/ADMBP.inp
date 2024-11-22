@@ -53,6 +53,7 @@ function bundle get_defaults (void)
     # This is following gretl's vecm command.
     string self.det_case = "uc"
     scalar self.error = FALSE
+    scalar self.seasonals = FALSE  # seasonal dummies
 
     return self
 end function
@@ -142,22 +143,58 @@ function bundle est_ardl (const series target "Endogenous in levels",
     add_varnames(&self, target, xlist, rxlist)
     print_ardl_info(self)
     bundle self.Model = estimate_var(target, xlist, rxlist, self)
+    matrix self.ar_coefficients = get_ar_coefficients(self.Model)
+    matrix self.xlist_coefficients = get_xlist_coefficients(self.Model, xlist)
+    matrix self.rxlist_coefficients = get_rxlist_coefficients(self.Model, rxlist)
+    matrix self.deterministic_coefficients = get_deterministic_coefficients(self.Model)
 
-    scalar model_is_stable = model_is_stable(get_ar_coeffs(self.Model))
+    scalar model_is_stable = model_is_stable(self.ar_coefficients)
     if !model_is_stable
         print "Error: The model is unstable. Re-specify your model and try again."
         self.error = TRUE
         return self
     endif
 
-    print self.Model
-
-
-
     return b
 end function
 
-function matrix get_ar_coeffs (const bundle Model)
+
+function matrix get_deterministic_coefficients (const bundle Model)
+    /* Get coefficients of deterministic terms. */
+
+    scalar n_deterministics = sum(Model.detflags)
+    matrix coeffs = Model.coeff[1:n_deterministics]
+
+    return coeffs
+end function
+
+function matrix get_rxlist_coefficients (const bundle Model,
+                                         const list rxlist "Exogenous in levels with lags")
+    /* Get coefficients of exogenous variables for which we do not create lags, e.g. dummies. */
+
+    matrix coeffs = empty
+    if nelem(rxlist) > 0
+        scalar start = nelem(Model.coeff) - nelem(rxlist)
+        matrix coeffs = Model.coeff[start:]
+    endif
+
+    return coeffs
+end function
+
+function matrix get_xlist_coefficients (const bundle Model,
+                                        const list xlist "Exogenous in levels with lags")
+    /* Get coefficients of exogenous variables for which we create lags. */
+
+    scalar n_deterministics = sum(Model.detflags)
+    scalar start = 1 + n_deterministics + Model.order  # skip deterministics + AR coefficients
+    scalar n_xlist = nelem(xlist)
+    scalar ende = start + n_xlist - 1
+    matrix coeffs = Model.coeff[start:ende]
+
+    return coeffs
+end function
+
+function matrix get_ar_coefficients (const bundle Model)
     /* Get AR coefficients. */
     return vec(Model.A[1,])
 end function
@@ -188,6 +225,7 @@ function bundle estimate_var (const series target "Endogenous in levels",
     list Exog = xlist rxlist
 
     # TODO: add further options for VARX estimation such as the deterministics
+    # see "help var"
     var self.max_lag target ; xlist rxlist #--quiet
 
     return $system
