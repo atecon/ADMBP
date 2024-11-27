@@ -41,13 +41,13 @@ function bundle get_defaults (void)
     scalar self.max_lag = $pd
     string self.lag_criteria = "AIC"
     scalar self.conditional_model = FALSE
-    scalar self.permanent_shock = FALSE
+    scalar self.cumulated_multipliers = FALSE
+    scalar self.max_horizon = 12
     # "parametric", "non_parametric", "wild_uniform", "wild_rademacher", "block"
     string self.boot_type = "block"
     scalar self.boot_reps = 999
-    scalar self.max_horizon = 12
     scalar self.cilevel = 0.95
-    scalar self.verbose = 1
+    scalar self.verbose = FALSE
     scalar self.stopping_criteria = 0.2
     # CASES: "nc": no const., "uc": unrestricted const., "rc": restricted const.,
     # "crt": unrest. const + restr. trend, "ct": unrest. const + unrestr. trend
@@ -59,9 +59,9 @@ function bundle get_defaults (void)
     return self
 end function
 
-function string get_shocktype (const int permanent_shock)
+function string get_shocktype (const int cumulated_multipliers)
     /* Get shock type. */
-    string shocktype = (permanent_shock == 0) ? "temporary" : "permanent"
+    string shocktype = (cumulated_multipliers == 0) ? "temporary" : "permanent"
     return shocktype
 end function
 
@@ -84,30 +84,22 @@ function string get_bootstrap_type (const string boot_type)
 end function
 
 
-function scalar missings_exist (const list All)
+function void missings_exist (const list All)
     /* Check for sample validity. */
 
-    scalar has_missings = FALSE
     scalar nobs = $nobs
     smpl All --no-missing
     scalar nobs_new = $nobs
 
-    if nobs != nobs_new
-        printf "Error: Missing values in the sample. Please remove them and try again."
-        return TRUE
-    else
-        return FALSE
-    endif
+    errorif(nobs != nobs_new,
+            "Error: Missing values in the sample. Please remove them and try again.")
 end function
 
-# add function add_varnames()
 function void add_varnames (bundle *self,
-                            const series target,
                             const list xlist,
                             const list rxlist)
     /* Add variable names to the bundle. */
 
-    self.vname_target = argname(target)
     self.vname_xlist = varnames(xlist)
     self.vname_rxlist = varnames(rxlist)
 end function
@@ -120,11 +112,12 @@ function bundle est_ardl (const series target "Endogenous in levels",
     /* Compute ARDL model regression and dynamic multipliers */
 
     if exists(self)
-        self = self + get_defaults()
+        bundle self = self + get_defaults()
     else
         bundle self = get_defaults()
     endif
-    add_varnames(&self, target, xlist, rxlist)
+    add_varnames(&self, xlist, rxlist)
+    self.vname_target = argname(target)
 
     # TODO: add a check for any deterministics in xlist and rxlist
     # We will add those
@@ -136,37 +129,97 @@ function bundle est_ardl (const series target "Endogenous in levels",
 
     smpl +self.max_lag ;
     list All = target xlist_w_lags rxlist
-    scalar err = missings_exist(All)
-    if err == TRUE
-        self.error = TRUE
-        return self
-    endif
+    missings_exist(All)
 
+
+    # Estimate the initial ARDL model
     print_ardl_info(self)
     bundle self.Model = estimate_var(target, xlist_w_lags, rxlist, self)
-
     matrix self.ar_coefficients = get_ar_coefficients(self.Model)
     matrix self.xlist_coefficients = get_xlist_coefficients(self.Model, xlist_w_lags, self.vname_xlist)
     matrix self.rxlist_coefficients = get_rxlist_coefficients(self.Model, rxlist)
     matrix self.deterministic_coefficients = get_deterministic_coefficients(self.Model)
 
     scalar model_is_stable = model_is_stable(self.ar_coefficients)
-    if !model_is_stable
-        print "Error: The model is unstable. Re-specify your model and try again."
-        self.error = TRUE
-        return self
-    endif
-
+    errorif(!model_is_stable, "Error: The model is unstable. Re-specify your model and try again.")
     matrix self.lr_multipliers_point = get_longrun_multipliers(self)
+    print self.lr_multipliers_point
 
 
     # Start bootstrap estimation
     smpl full
-    bundle Boot = bootARDL(target, xlist, rxlist, self)
+    bundle ModelBoot = bootARDL(target, xlist, rxlist, self)
 
+    # TODO:: compute bootstrap long-run multipliers
+
+    bundle DynamicMultipliers = get_dynamic_multipliers(self, ModelBoot)
+
+
+    # Compute dynamic multipliers based on bootstrap estimates
+    scalar nvars_yx = 1 + nelem(xlist)
+    matrices Multipliers = array(nvars_yx)
+    matrices LRmultipliers = mshape(NA, self.boot_reps, nvars_yx)
+
+    BHAT_b[nloop,] = $coeff'
+    shockbeta = $coeff[b.ax:b.ex]
+    shockbeta = mshape(shockbeta, (b.conditional_model + self.max_lag), b.nx)
+
+    loop i=1..(1+b.nx)
+        matrix mtmp = zeros(b.max_horizon, 1)
+
+        if i == 1
+            # response of target to a shock in target
+            dmfilt(ARcoef_b, ARcoef_b, b.max_horizon, b.cumulated_multipliers, &mtmp)
+        else		# response of y to a shock in x_i
+            dmfilt(ARcoef_b, shockbeta[,i-1], b.max_horizon,
+                    b.cumulated_multipliers, &mtmp)
+        endif
+        mout$i[,nloop] = mtmp
+
+     b.BHAT_b = BHAT_b
+
+    scalar varcounter = 1
+    scalar nvars =
+    loop i=1..(1+b.nx)
+        string vname = b.names_variables[$i]
+        matrix b.DMraw_@vname = mout$i
+    endloop
+
+    # Clean up the bundle
+    delete b.nrx
+    delete b.lag_criteria
+    #delete b.mrx
+    delete b.Zcoef
+    #delete b.boot_type
+    #delete b.cumulated_multipliers
+    delete b.ARcoef
+    #delete b.addDET
+    #delete self.max_lagmin
+    delete b.muhat
 
 
     return b
+end function
+
+
+function void print_error_failed_attempts (const int nfailed_estimates,
+                                           const int boot_reps)
+    /* code description
+    return: type, description */
+
+    scalar pct_failed = 100 * nfailed_estimates / boot_reps
+    printf "\nError: %d pct. of the bootstrap iterations failed due to instability.\n", pct_failed
+    print "Error: Please re-specify your model and try again."
+end function
+
+function matrix build_xzbeta_coeff_vector (const bundle self)
+    /* Build the coefficient vector for the xz terms. Needed for bootstrapping part. */
+
+    matrix ret = vec(self.deterministic_coefficients) | \
+                 vec(self.xlist_coefficients) | \
+                 vec(self.rxlist_coefficients)
+
+    return ret
 end function
 
 
@@ -279,7 +332,7 @@ function matrix get_xlist_coefficients (const bundle Model,
 end function
 
 function matrix get_ar_coefficients (const bundle Model)
-    /* Get AR coefficients. Note: we assume there are AR-coeffients */
+    /* Get AR coefficients. Note: we assume there exist AR-coeffients */
     return vec(Model.A[1,])
 end function
 
@@ -307,12 +360,52 @@ function bundle estimate_var (const series target "Endogenous in levels",
     /* Estimate a 1-dimensional VARX model. */
 
     list Exog = xlist rxlist
+    string quiet_opt = self.verbose == FALSE ? "--silent" : ""
 
     # TODO: add further options for VARX estimation such as the deterministics
     # see "help var"
-    var self.max_lag target ; xlist rxlist #--quiet
+    var self.max_lag target ; xlist rxlist @quiet_opt
 
     return $system
+end function
+
+
+function matrix compute_dynamic_multipliers (const matrix ar_coeff,
+                                             const matrix x_coeff,
+                                             const int max_horizon[1::],
+                                             const bool cumulated_multipliers)
+    /* Compute dynamic multipliers. */
+
+    matrix shock = 1 | zeros(max_horizon, 1)
+    shock = cumulated_multipliers ? cum(shock) : shock
+    matrix dyn_mult = filter(shock, x_coeff, ar_coeff)
+    print dyn_mult
+    stop
+end function
+
+
+function bundle get_dynamic_multipliers (const bundle self,
+                                         const bundle ModelBoot)
+    /* code description
+    return: type, description */
+
+    /*
+    Steps:
+    1) Compute dynamic multipliers for each variable y and xlist.
+    2) If boot_reps == 0, compute only point estimates
+    3) If boot_reps > 0, compute both point estimates and bootstrap estimates
+    */
+
+    scalar nvars_yx = 1 + nelem(self.vname_xlist)
+    strings vnames = defarray(self.vname_target) + self.vname_xlist
+    print vnames
+
+    stop
+
+
+
+
+    return variable
 end function
 
 
@@ -508,95 +601,67 @@ function bundle bootARDL (const series target,
                           const bundle self)
     /* Bootsrap estimation. */
 
-    # Placeholder for the bootstrap estimates
-    scalar nvars_yx = 1 + nelem(xlist)
-    matrices Multipliers = array(nvars_yx)
-    matrices LRmultipliers = mshape(NA, self.boot_reps, nvars_yx)
+    bundle ModelBoot = empty
+
+    # We are going to store all coefficients of the VAR model
+    matrix ModelBoot.coeff_boot = mshape(NA, self.boot_reps, self.Model.ncoeff)
+    matrix ModelBoot.ar_coefficients_boot = mshape(NA, self.boot_reps, self.Model.order)
+    matrix ModelBoot.xlist_coefficients_boot = mshape(NA, self.boot_reps, self.Model.order * nelem(xlist))
+    matrix ModelBoot.rxlist_coefficients_boot = mshape(NA, self.boot_reps, nelem(rxlist))
+    matrix ModelBoot.deterministic_coefficients_boot = mshape(NA, self.boot_reps, sum(self.Model.detflags))
+
+    scalar ModelBoot.error_convergence = FALSE
     scalar nloop = 1
     scalar nfailed_estimates = 0
-
 
     list xlist_w_lags = get_lags(xlist, self.max_lag, self.conditional_model)
 
     smpl self.Model.t1 self.Model.t2  # set sample to the estimation period
-    series uhat = self.Model.uhat     # residuals from the model
+    series uhat = self.Model.uhat     # residuals from the initial model
     smpl full
 
     list deterlist = list_of_deterministics(self.Model.detflags)
 
     loop while nloop <= self.boot_reps
         series innovations = generate_bootstrap_residuals(uhat, self.boot_type)
-        matrix xzbeta = vec(self.deterministic_coefficients) | \
-                        vec(self.xlist_coefficients) | \
-                        vec(self.rxlist_coefficients)
+        matrix xzbeta = build_xzbeta_coeff_vector(self)
         list xzlist = deterlist xlist_w_lags rxlist
         series target_boot = varsimA(target, self.ar_coefficients, xzlist, xzbeta,
                                      innovations, self.max_lag)
 
         # For debugging purposes
-        #gnuplot target yboot --with-lines --time-series --output="output.png"
+        #gnuplot target target_boot --with-lines --time-series --output="output.png"
+        #stop
 
-        bundle ModelBoot = estimate_var(target_boot, xlist_w_lags, rxlist, self)
-        matrix ar_coefficients = get_ar_coefficients(ModelBoot)
-    #matrix self.xlist_coefficients = get_xlist_coefficients(self.Model, xlist_w_lags, self.vname_xlist)
-    #matrix self.rxlist_coefficients = get_rxlist_coefficients(self.Model, rxlist)
-    #matrix self.deterministic_coefficients = get_deterministic_coefficients(self.Model)
+        bundle ModelTemp = estimate_var(target_boot, xlist_w_lags, rxlist, self)
+        ModelBoot.coeff_boot[nloop,] = ModelTemp.coeff'           # TODO: Do we really need all coefficients?
+        matrix ar_beta = get_ar_coefficients(ModelTemp)'
 
-        scalar model_is_stable = model_is_stable(ar_coefficients)
-        if !model_is_stable
-            nfailed_estimates++
-        endif
+        scalar model_is_stable = model_is_stable(ar_beta)
+        nfailed_estimates += !model_is_stable ? 1 : 0
         if (nfailed_estimates / self.boot_reps) >= self.stopping_criteria
-            printf "\nError: %d pct. of the bootstrap iterations failed due to instability.\n",\
-                    100*b.stopping_criteria
-            print "Error: Please re-specify your model and try again."
-            break
+            print_error_failed_attempts(nfailed_estimates, self.boot_reps)
+
+            ModelBoot.error_convergence = TRUE
+            return ModelBoot
         endif
 
-    *** HIER WEITERMACHEN ***
-
-        else
-            BHAT_b[nloop,] = $coeff'
-            shockbeta = $coeff[b.ax:b.ex]
-            shockbeta = mshape(shockbeta, (b.conditional_model + self.max_lag), b.nx)
-
-            loop i=1..(1+b.nx)
-                matrix mtmp = zeros(b.max_horizon, 1)
-
-                if i == 1
-                    # response of target to a shock in target
-                    dmfilt(ARcoef_b, ARcoef_b, b.max_horizon, b.permanent_shock, &mtmp)
-                else		# response of y to a shock in x_i
-                    dmfilt(ARcoef_b, shockbeta[,i-1], b.max_horizon,
-                           b.permanent_shock, &mtmp)
-                endif
-                mout$i[,nloop] = mtmp
-            endloop
-
-            nloop++
+        # Store coefficients
+        ModelBoot.ar_coefficients_boot[nloop,] = ar_beta
+        ModelBoot.deterministic_coefficients_boot[nloop,] = get_deterministic_coefficients(ModelTemp)'
+        # Form per row: x(-1) ~ x(-2) ~ ... ~ x(-pq) ~ z(-1) ~ z(-2) ~ ... ~ z(-pq)
+        ModelBoot.xlist_coefficients_boot[nloop,] = vec(get_xlist_coefficients(ModelTemp,
+                                                        xlist_w_lags,
+                                                        self.vname_xlist))'
+        if nelem(rxlist) > 0
+            # Form per row: a ~ b ~ ...
+            ModelBoot.rxlist_coefficients_boot[nloop,] = vec(get_rxlist_coefficients(ModelTemp, rxlist))'
         endif
+
+        nloop++
     endloop
 
-    b.BHAT_b = BHAT_b
-
-    scalar varcounter = 1
-    scalar nvars =
-    loop i=1..(1+b.nx)
-        string vname = b.names_variables[$i]
-        matrix b.DMraw_@vname = mout$i
-    endloop
-
-    # Clean up the bundle
-    delete b.nrx
-    delete b.lag_criteria
-    #delete b.mrx
-    delete b.Zcoef
-    #delete b.boot_type
-    #delete b.permanent_shock
-    delete b.ARcoef
-    #delete b.addDET
-    #delete self.max_lagmin
-    delete b.muhat
+    return ModelBoot
 end function
 
 
@@ -637,7 +702,7 @@ function void print_ardl_info (const bundle self)
     printf "******************************************\n"
     printf "\nSettings for dynamic multiplier computation\n"
 
-    printf "\nShock type: %s\n", get_shocktype(self.permanent_shock)
+    printf "\nShock type: %s\n", get_shocktype(self.cumulated_multipliers)
     printf "Bootstrap iterations: %d\n", self.boot_reps
 
     printf "Bootstrap type: %s\n", get_bootstrap_type(self.boot_type)
@@ -833,22 +898,6 @@ function void ECterm (bundle *b)
         #setinfo b.ECMrc --description="EC restricted const."
     endif
 end function
-
-
-function void dmfilt (const matrix ARcoef,
-                      const matrix ycoef,
-                      int max_horizon,
-                      int permanent_shock,
-                      matrix *DM)
-    /* Compute dynamic multipliers. */
-
-    matrix impulse = ones(max_horizon + 1, 2)
-    impulse[2:,1] = 0
-    DM = filter(impulse, ycoef, ARcoef)
-
-    DM = (permanent_shock == 0) ? DM[,1] : DM[,2]
-end function
-
 
 function bundle plot_defaults (void)
     /* Default parameter values of plotting dynamic multipliers. */
