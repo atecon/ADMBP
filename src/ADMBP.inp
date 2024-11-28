@@ -135,24 +135,27 @@ function bundle est_ardl (const series target "Endogenous in levels",
     # Estimate the initial ARDL model
     print_ardl_info(self)
     bundle self.Model = estimate_var(target, xlist_w_lags, rxlist, self)
-    matrix self.ar_coefficients = get_ar_coefficients(self.Model)
-    matrix self.xlist_coefficients = get_xlist_coefficients(self.Model, xlist_w_lags, self.vname_xlist)
-    matrix self.rxlist_coefficients = get_rxlist_coefficients(self.Model, rxlist)
-    matrix self.deterministic_coefficients = get_deterministic_coefficients(self.Model)
+    matrix self.Model.ar_coefficients = get_ar_coefficients(self.Model)
 
-    scalar model_is_stable = model_is_stable(self.ar_coefficients)
+    scalar model_is_stable = model_is_stable(self.Model.ar_coefficients)
     errorif(!model_is_stable, "Error: The model is unstable. Re-specify your model and try again.")
-    matrix self.lr_multipliers_point = get_longrun_multipliers(self)
-    print self.lr_multipliers_point
+    # Retrieve point estimates of the ARDL model
+    matrix self.Model.xlist_coefficients = get_xlist_coefficients(self.Model, xlist_w_lags, self.vname_xlist)
+    matrix self.Model.rxlist_coefficients = get_rxlist_coefficients(self.Model, rxlist)
+    matrix self.Model.deterministic_coefficients = get_deterministic_coefficients(self.Model)
+    # Compute and store multipliers
+    matrices self.Model.DynamicMultipliers = get_dynamic_multipliers(self, self.Model, 0)
+    matrix self.Model.LongRunMultipliers = get_longrun_multipliers(self, self.Model, 0)
 
 
-    # Start bootstrap estimation
     smpl full
-    bundle ModelBoot = bootARDL(target, xlist, rxlist, self)
+    if self.boot_reps > 0               # Bootstrap estimation
+        bundle ModelBoot = bootARDL(target, xlist, rxlist, self, self.Model)
+        matrices ModelBoot.DynamicMultipliers = get_dynamic_multipliers(self, ModelBoot, self.boot_reps)
+        matrix ModelBoot.LongRunMultipliers = get_longrun_multipliers(self, ModelBoot, self.boot_reps)
+    endif
 
-    # TODO:: compute bootstrap long-run multipliers
 
-    bundle DynamicMultipliers = get_dynamic_multipliers(self, ModelBoot)
 
 
     # Compute dynamic multipliers based on bootstrap estimates
@@ -223,7 +226,7 @@ function matrix build_xzbeta_coeff_vector (const bundle self)
 end function
 
 
-function matrix get_cov_matrix (const bundle self, const int selected_xvar)
+function matrix get_cov_matrix (const bundle Model, const int max_lag, const int selected_xvar)
     #' Retrieve the covariance matrix for the target terms and selected x variable.
     #'
     #' @param self A bundle containing the model information.
@@ -235,19 +238,19 @@ function matrix get_cov_matrix (const bundle self, const int selected_xvar)
     #' corresponding to the y terms and the specified x variable (if any). The resulting matrix
     #' is the covariance matrix for these terms.
 
-    matrix vcv = self.Model.xtxinv
-    scalar n_deterministics = sum(self.Model.detflags)
-    matrix mask = zeros(self.Model.ncoeff)
+    matrix vcv = Model.xtxinv
+    scalar n_deterministics = sum(Model.detflags)
+    matrix mask = zeros(Model.ncoeff)
 
     # Set the mask for y terms
     scalar start_y = 1 + n_deterministics
-    scalar ende_y = start_y + self.max_lag - 1
+    scalar ende_y = start_y + max_lag - 1
     mask[start_y:ende_y] = 1
 
     if selected_xvar != 0
         # Set the mask for the x terms
-        scalar start_x = ende_y + 1 + (selected_xvar - 1) * self.max_lag
-        scalar ende_x = start_x + self.max_lag - 1
+        scalar start_x = ende_y + 1 + (selected_xvar - 1) * max_lag
+        scalar ende_x = start_x + max_lag - 1
         mask[start_x:ende_x] = 1
     endif
 
@@ -376,77 +379,119 @@ function matrix compute_dynamic_multipliers (const matrix ar_coeff,
                                              const bool cumulated_multipliers)
     /* Compute dynamic multipliers. */
 
+    # TODO: instead of a unit-shock, shocksize could equal the standard deviation
+    # of the shock variable -- not of the target series
     matrix shock = 1 | zeros(max_horizon, 1)
     shock = cumulated_multipliers ? cum(shock) : shock
     matrix dyn_mult = filter(shock, x_coeff, ar_coeff)
-    print dyn_mult
-    stop
+
+    return dyn_mult
 end function
 
 
-function bundle get_dynamic_multipliers (const bundle self,
-                                         const bundle ModelBoot)
-    /* code description
-    return: type, description */
+function matrices get_dynamic_multipliers (const bundle self,
+                                           const bundle Model,
+                                           int boot_reps[0::])
+    /* Compute dynamic multipliers for target and all xlist series. */
 
-    /*
-    Steps:
-    1) Compute dynamic multipliers for each variable y and xlist.
-    2) If boot_reps == 0, compute only point estimates
-    3) If boot_reps > 0, compute both point estimates and bootstrap estimates
-    */
-
+    scalar boot_reps = boot_reps == 0 ? 1 : boot_reps    # set to 1 if no bootstrapping
     scalar nvars_yx = 1 + nelem(self.vname_xlist)
-    strings vnames = defarray(self.vname_target) + self.vname_xlist
-    print vnames
+    # store results for each shock in a separate matrix
+    matrices DynamicMultipliers = array(nvars_yx)
 
-    stop
+    loop i=1..nvars_yx
+        DynamicMultipliers[i] = mshape(NA, (1+self.max_horizon), boot_reps)
+        matrix xbeta = {}
 
+        loop j=1..boot_reps
+            if boot_reps > 1
+                matrix arbeta = Model.ar_coefficients[j,]
+            else
+                matrix arbeta = Model.ar_coefficients
+            endif
 
+            if i > 1  # for i==1 for the target variable we do not need xbeta
 
+                if boot_reps > 1
+                    # Retrieve lag-coefficients for the selected x variable
+                    matrix xbeta = Model.xlist_coefficients[j,]
+                    xbeta = mshape(xbeta, self.max_lag, nelem(self.vname_xlist))
+                    xbeta = xbeta[,i-1]  # coefficient vector for the selected x variable
+                else
+                    matrix xbeta = Model.xlist_coefficients[,i-1]
+                endif
+            endif
 
-    return variable
-end function
-
-
-function matrix get_longrun_multipliers (const bundle self)
-    #' Compute long-run multipliers for target and all xlist series.
-    #'
-    #' This function calculates the long-run multipliers for the target variable and all variables in the xlist.
-    #' It loops over all variables in the target and xlist, computes the necessary coefficients and covariance matrices,
-    #' and then calculates the long-run multipliers.
-    #'
-    #' @param self A bundle containing the following elements:
-    #'   - ar_coefficients: The autoregressive coefficients.
-    #'   - xlist_coefficients: The coefficients for the xlist variables.
-    #'   - vname_target: The name of the target variable.
-    #'   - vname_xlist: The names of the xlist variables.
-    #'
-    #' @return A matrix of long-run multipliers and their standard errors. The rows are labeled with the names of the target and xlist variables, and the columns are labeled "Coeff." and "SE".
-    #'
-    #' @details
-    #' The function first initializes a matrix to store the long-run multipliers and their standard errors. It then loops over all variables in the target and xlist, computing the necessary coefficients and covariance matrices. The long-run multipliers are calculated using the `compute_longrun_multiplier` function. Finally, the resulting matrix is labeled with the appropriate variable names and returned.
-
-    # Loop over all variables in target + xlist
-    scalar nvars = 1 + cols(self.xlist_coefficients)
-    matrix lr_multipliers = zeros(nvars, 2)
-
-    loop i=1..nvars
-        # First round we compute the multiplier of y -> y
-        matrix xcoeff = i == 1 ? {} : self.xlist_coefficients[,i-1]
-
-        matrix select = i == 1 ? 0 : (i-1)  # 1st round, select no xlist-variable
-        matrix vcv = get_cov_matrix(self, select)
-        lr_multipliers[i,] = compute_longrun_multiplier(self.ar_coefficients,
-                                                        xcoeff,
-                                                        vcv)
+            DynamicMultipliers[i][,j] = compute_dynamic_multipliers(arbeta, xbeta,
+                                            self.max_horizon, self.cumulated_multipliers)
+        endloop
     endloop
 
-    rlabels = defarray(self.vname_target) + self.vname_xlist
-    rnameset(lr_multipliers, rlabels)
-    cnameset(lr_multipliers, "Coeff. SE")
+    return DynamicMultipliers
+end function
 
-    return lr_multipliers
+
+function matrix get_longrun_multipliers (const bundle self,
+                                         const bundle Model,
+                                         int boot_reps[0::])
+    /* */
+
+    scalar boot_reps = boot_reps == 0 ? 1 : boot_reps    # set to 1 if no bootstrapping
+    # Loop over all variables in target + xlist
+    scalar nvars_yx = 1 + nelem(self.vname_xlist)
+
+    if boot_reps > 1
+        # store results for each shock in a separate matrix
+        matrix LongRunMultipliers = mshape(NA, boot_reps, nvars_yx)
+    else
+        matrix LongRunMultipliers = mshape(NA, nvars_yx, 2)  # store coefficients and standard errors
+    endif
+
+    loop i=1..nvars_yx
+        matrix xbeta = {}
+
+        loop j=1..boot_reps
+            if boot_reps > 1
+                matrix arbeta = Model.ar_coefficients[j,]
+                # not interested in computing standard errors via the Delta method
+                # as these are computed by bootstrapping instead
+                matrix vcv = {}
+            else
+                matrix arbeta = Model.ar_coefficients
+                matrix select = i == 1 ? 0 : (i-1)  # 1st round, select no xlist-variable
+                matrix vcv = get_cov_matrix(Model, self.max_lag, select)
+            endif
+
+            if i > 1  # for i==1 for the target variable we do not need xbeta
+                matrix xbeta = Model.xlist_coefficients[,i-1]
+
+                if boot_reps > 1
+                    # Retrieve lag-coefficients for the selected x variable
+                    matrix xbeta = Model.xlist_coefficients[j,]
+                    xbeta = mshape(xbeta, self.max_lag, nelem(self.vname_xlist))
+                    xbeta = xbeta[,i-1]  # coefficient vector for the selected x variable
+                else
+                    matrix xbeta = Model.xlist_coefficients[,i-1]
+                endif
+            endif
+
+            if boot_reps > 1
+                LongRunMultipliers[j,i] = compute_longrun_multiplier(arbeta, xbeta, vcv)[,1] # only coefficient
+            else
+                LongRunMultipliers[i,] = compute_longrun_multiplier(arbeta, xbeta, vcv)
+            endif
+        endloop
+    endloop
+
+    label_vnames = defarray(self.vname_target) + self.vname_xlist
+    if boot_reps > 1
+        cnameset(LongRunMultipliers, label_vnames)
+    else
+        rnameset(LongRunMultipliers, label_vnames)
+        cnameset(LongRunMultipliers, "Coeff. SE")
+    endif
+
+    return LongRunMultipliers
 end function
 
 
@@ -454,7 +499,8 @@ function matrix compute_longrun_multiplier (const matrix ar_coefficients,
                                             const matrix x_coefficients,
                                             const matrix vcv)
     /* Compute long-run multipliers. Both matrices are column vectors and represen
-      the lag of the AR terms and the i-th exogenous, respectively. */
+      the lag of the AR terms and the i-th exogenous, respectively.
+      If vcv has non-zero elements, the standard error is computed by the Delta method. */
 
     scalar ny = nelem(ar_coefficients)
     scalar nx = nelem(x_coefficients)
@@ -464,21 +510,24 @@ function matrix compute_longrun_multiplier (const matrix ar_coefficients,
     scalar no_ar = ny == 0
     scalar denominator = no_ar ? 1 : 1 - sum(ar_coefficients)
     scalar lrbeta = no_distlags ? 1 / denominator : sum(x_coefficients) / denominator
+    scalar se = NA
 
-    # Jacobian term for computing the standard error by delta method
-    # FIXME: I am not sure how to implement this currently
-    if nelem(vcv) == 0
-        return {lrbeta, NA}
-    endif
-    matrix J = zeros(1, ncoeff)
-    if !no_ar
-        J[1:ny] = lrbeta / denominator
-    endif
-    if !no_distlags
-        J[ny+1:] = 1 / denominator
-    endif
+    if nelem(vcv)
+        # Jacobian term for computing the standard error by delta method
+        # FIXME: I am not sure how to implement this currently
+        if nelem(vcv) == 0
+            return {lrbeta, NA}
+        endif
+        matrix J = zeros(1, ncoeff)
+        if !no_ar
+            J[1:ny] = lrbeta / denominator
+        endif
+        if !no_distlags
+            J[ny+1:] = 1 / denominator
+        endif
 
-    scalar se = sqrt(qform(J, vcv))
+        scalar se = sqrt(qform(J, vcv))
+    endif
 
     return {lrbeta, se}
 end function
@@ -598,17 +647,22 @@ end function
 function bundle bootARDL (const series target,
                           const list xlist,
                           list rxlist[null],
-                          const bundle self)
+                          const bundle self,
+                          const bundle Model)
     /* Bootsrap estimation. */
 
     bundle ModelBoot = empty
 
+    if self.verbose
+        print "Start setting up objects for storing bootstrap results..."
+    endif
+
     # We are going to store all coefficients of the VAR model
-    matrix ModelBoot.coeff_boot = mshape(NA, self.boot_reps, self.Model.ncoeff)
-    matrix ModelBoot.ar_coefficients_boot = mshape(NA, self.boot_reps, self.Model.order)
-    matrix ModelBoot.xlist_coefficients_boot = mshape(NA, self.boot_reps, self.Model.order * nelem(xlist))
-    matrix ModelBoot.rxlist_coefficients_boot = mshape(NA, self.boot_reps, nelem(rxlist))
-    matrix ModelBoot.deterministic_coefficients_boot = mshape(NA, self.boot_reps, sum(self.Model.detflags))
+    #matrix ModelBoot.coeff_boot = mshape(NA, self.boot_reps, self.Model.ncoeff)
+    matrix ModelBoot.ar_coefficients = mshape(NA, self.boot_reps, Model.order)
+    matrix ModelBoot.xlist_coefficients = mshape(NA, self.boot_reps, Model.order * nelem(xlist))
+    matrix ModelBoot.rxlist_coefficients = mshape(NA, self.boot_reps, nelem(rxlist))
+    matrix ModelBoot.deterministic_coefficients = mshape(NA, self.boot_reps, sum(Model.detflags))
 
     scalar ModelBoot.error_convergence = FALSE
     scalar nloop = 1
@@ -616,25 +670,28 @@ function bundle bootARDL (const series target,
 
     list xlist_w_lags = get_lags(xlist, self.max_lag, self.conditional_model)
 
-    smpl self.Model.t1 self.Model.t2  # set sample to the estimation period
-    series uhat = self.Model.uhat     # residuals from the initial model
+    smpl Model.t1 Model.t2  # set sample to the estimation period
+    series uhat = Model.uhat     # residuals from the initial model
     smpl full
 
-    list deterlist = list_of_deterministics(self.Model.detflags)
+    list deterlist = list_of_deterministics(Model.detflags)
+
+    if self.verbose
+        print "Start bootstrap estimation..."
+    endif
 
     loop while nloop <= self.boot_reps
         series innovations = generate_bootstrap_residuals(uhat, self.boot_type)
-        matrix xzbeta = build_xzbeta_coeff_vector(self)
+        matrix xzbeta = build_xzbeta_coeff_vector(Model)
         list xzlist = deterlist xlist_w_lags rxlist
-        series target_boot = varsimA(target, self.ar_coefficients, xzlist, xzbeta,
+        series target_boot = varsimA(target, Model.ar_coefficients, xzlist, xzbeta,
                                      innovations, self.max_lag)
-
         # For debugging purposes
         #gnuplot target target_boot --with-lines --time-series --output="output.png"
         #stop
 
         bundle ModelTemp = estimate_var(target_boot, xlist_w_lags, rxlist, self)
-        ModelBoot.coeff_boot[nloop,] = ModelTemp.coeff'           # TODO: Do we really need all coefficients?
+        #ModelBoot.coeff_boot[nloop,] = ModelTemp.coeff'           # TODO: Do we really need all coefficients?
         matrix ar_beta = get_ar_coefficients(ModelTemp)'
 
         scalar model_is_stable = model_is_stable(ar_beta)
@@ -647,19 +704,23 @@ function bundle bootARDL (const series target,
         endif
 
         # Store coefficients
-        ModelBoot.ar_coefficients_boot[nloop,] = ar_beta
-        ModelBoot.deterministic_coefficients_boot[nloop,] = get_deterministic_coefficients(ModelTemp)'
+        ModelBoot.ar_coefficients[nloop,] = ar_beta
+        ModelBoot.deterministic_coefficients[nloop,] = get_deterministic_coefficients(ModelTemp)'
         # Form per row: x(-1) ~ x(-2) ~ ... ~ x(-pq) ~ z(-1) ~ z(-2) ~ ... ~ z(-pq)
-        ModelBoot.xlist_coefficients_boot[nloop,] = vec(get_xlist_coefficients(ModelTemp,
+        ModelBoot.xlist_coefficients[nloop,] = vec(get_xlist_coefficients(ModelTemp,
                                                         xlist_w_lags,
                                                         self.vname_xlist))'
         if nelem(rxlist) > 0
             # Form per row: a ~ b ~ ...
-            ModelBoot.rxlist_coefficients_boot[nloop,] = vec(get_rxlist_coefficients(ModelTemp, rxlist))'
+            ModelBoot.rxlist_coefficients[nloop,] = vec(get_rxlist_coefficients(ModelTemp, rxlist))'
         endif
 
         nloop++
     endloop
+
+    if self.verbose
+        print "Succesfully finished bootstrap estimation..."
+    endif
 
     return ModelBoot
 end function
