@@ -130,11 +130,12 @@ function bundle est_ardl (const series target "Endogenous in levels",
     smpl +self.max_lag ;
     list All = target xlist_w_lags rxlist
     missings_exist(All)
-
+    self.T = $nobs
+    self.t1 = $t1
+    self.t2 = $t2
 
     # Estimate the initial ARDL model
-    print_ardl_info(self)
-    bundle self.Model = estimate_var(target, xlist_w_lags, rxlist, self)
+    bundle self.Model = estimate_var(target, xlist_w_lags, rxlist, self, TRUE)
     matrix self.Model.ar_coefficients = get_ar_coefficients(self.Model)
 
     scalar model_is_stable = model_is_stable(self.Model.ar_coefficients)
@@ -143,66 +144,65 @@ function bundle est_ardl (const series target "Endogenous in levels",
     matrix self.Model.xlist_coefficients = get_xlist_coefficients(self.Model, xlist_w_lags, self.vname_xlist)
     matrix self.Model.rxlist_coefficients = get_rxlist_coefficients(self.Model, rxlist)
     matrix self.Model.deterministic_coefficients = get_deterministic_coefficients(self.Model)
-    # Compute and store multipliers
-    matrices self.Model.DynamicMultipliers = get_dynamic_multipliers(self, self.Model, 0)
-    matrix self.Model.LongRunMultipliers = get_longrun_multipliers(self, self.Model, 0)
 
+    # Compute and store multipliers using point estimates
+    matrices self.DynamicMultipliers = get_dynamic_multipliers(self, self.Model, 0)
+    matrix coeff_longrun = get_longrun_multipliers(self, self.Model, 0)
+    matrix self.coeff_longrun = coeff_longrun[,1]
+    rnameset(self.coeff_longrun, rnameget(coeff_longrun))
+    cnameset(self.coeff_longrun, "Coeff.(asym)")
+    matrix self.stderr_longrun = coeff_longrun[,2]
+    rnameset(self.stderr_longrun, rnameget(coeff_longrun))
+    cnameset(self.stderr_longrun, "S.E.(asym)")
+
+    # TODO:
+    /*
+    function scalar mean_lag (const matrix avec,
+                          const matrix bvec)
+        sb = sum(bvec)
+        sa = 1 - sum(avec)
+        p = rows(avec)
+        q = rows(bvec) - 1
+        if p > 0
+            sda = -seq(1, p) * avec
+        else
+            sda = 0
+        endif
+        if q > 0
+            sdb = seq(1, rows(bvec)-1) * bvec[2:]
+        else
+            sdb = 0
+        endif
+        ret = sdb/sb - sda/sa
+        return ret
+    end function
+    */
 
     smpl full
     if self.boot_reps > 0               # Bootstrap estimation
         bundle ModelBoot = bootARDL(target, xlist, rxlist, self, self.Model)
         matrices ModelBoot.DynamicMultipliers = get_dynamic_multipliers(self, ModelBoot, self.boot_reps)
+
+        # Store dynamic multiplier results
         matrix ModelBoot.LongRunMultipliers = get_longrun_multipliers(self, ModelBoot, self.boot_reps)
+        bundle self.multipliers_boot = eval_boot_multipliers(self, ModelBoot.DynamicMultipliers)
+        # Store long-run multiplier results
+        matrix coeff_longrun = eval_boot_longrun_multipliers(self, ModelBoot.LongRunMultipliers)
+        matrix self.coeff_longrun_boot = coeff_longrun[,1:2]
+        cnameset(self.coeff_longrun_boot, cnameget(coeff_longrun)[1:2])
+        rnameset(self.coeff_longrun_boot, rnameget(coeff_longrun))
+        matrix self.stderr_longrun_boot = coeff_longrun[,3]
+        rnameset(self.stderr_longrun_boot, rnameget(coeff_longrun))
+        cnameset(self.stderr_longrun_boot, "S.E.(boot)")
     endif
 
 
 
-
-    # Compute dynamic multipliers based on bootstrap estimates
-    scalar nvars_yx = 1 + nelem(xlist)
-    matrices Multipliers = array(nvars_yx)
-    matrices LRmultipliers = mshape(NA, self.boot_reps, nvars_yx)
-
-    BHAT_b[nloop,] = $coeff'
-    shockbeta = $coeff[b.ax:b.ex]
-    shockbeta = mshape(shockbeta, (b.conditional_model + self.max_lag), b.nx)
-
-    loop i=1..(1+b.nx)
-        matrix mtmp = zeros(b.max_horizon, 1)
-
-        if i == 1
-            # response of target to a shock in target
-            dmfilt(ARcoef_b, ARcoef_b, b.max_horizon, b.cumulated_multipliers, &mtmp)
-        else		# response of y to a shock in x_i
-            dmfilt(ARcoef_b, shockbeta[,i-1], b.max_horizon,
-                    b.cumulated_multipliers, &mtmp)
-        endif
-        mout$i[,nloop] = mtmp
-
-     b.BHAT_b = BHAT_b
-
-    scalar varcounter = 1
-    scalar nvars =
-    loop i=1..(1+b.nx)
-        string vname = b.names_variables[$i]
-        matrix b.DMraw_@vname = mout$i
-    endloop
-
-    # Clean up the bundle
-    delete b.nrx
-    delete b.lag_criteria
-    #delete b.mrx
-    delete b.Zcoef
-    #delete b.boot_type
-    #delete b.cumulated_multipliers
-    delete b.ARcoef
-    #delete b.addDET
-    #delete self.max_lagmin
-    delete b.muhat
-
-
-    return b
+    return self
 end function
+
+
+
 
 
 function void print_error_failed_attempts (const int nfailed_estimates,
@@ -359,19 +359,74 @@ end function
 function bundle estimate_var (const series target "Endogenous in levels",
                               const list xlist "Exogenous in levels",
                               list rxlist[null] "Restricted I0s excl. intercept",
-                              const bundle self)
+                              const bundle self,
+                              const bool dotests)
     /* Estimate a 1-dimensional VARX model. */
 
     list Exog = xlist rxlist
     string quiet_opt = self.verbose == FALSE ? "--silent" : ""
+    string pdstring = sprintf("%d", $pd)
 
     # TODO: add further options for VARX estimation such as the deterministics
     # see "help var"
     var self.max_lag target ; xlist rxlist @quiet_opt
+    bundle Model = $system
 
-    return $system
+    if dotests
+        modtest @pdstring --autocorr --silent
+        matrix Model.autocorr_test = $test
+        matrix Model.autocorr_pvalue = $pvalue
+        modtest @pdstring --arch --silent
+        matrix Model.arch_test = $test
+        matrix Model.arch_pvalue = $pvalue
+        scalar Model.rsq = get_rsq(target, Model.uhat[,1])
+        scalar Model.rsq_adj = get_adjusted_rsq(Model.rsq, Model.T, Model.df)
+    endif
+
+    return Model
 end function
 
+
+function matrix get_model_statistics (const bundle Model)
+    #' This function takes a bundle containing model statistics and returns a matrix
+    #' with selected statistics including R-squared, adjusted R-squared, and p-values
+    #' for autocorrelation and ARCH tests.
+    #'
+    #' @param Model A bundle containing model statistics.
+    #' @return A matrix with the following statistics:
+    #'   - R-squared
+    #'   - Adjusted R-squared
+    #'   - P-value for autocorrelation test at lag 1
+    #'   - P-value for autocorrelation test at lag specified by $pd
+    #'   - P-value for ARCH test at lag 1
+    #'   - P-value for ARCH test at lag specified by $pd
+    #'
+    #' The matrix will have row names corresponding to the labels of the statistics.
+
+    string pdstring = sprintf("%d", $pd)
+    matrix table = Model.rsq | Model.rsq_adj
+    table |= Model.autocorr_pvalue[1]  # lag 1
+    if $pd > 1
+        table |= Model.autocorr_pvalue[$pd]  # lag $pd
+    endif
+    table |= Model.arch_pvalue[1]  # lag 1
+    if $pd > 1
+        table |= Model.arch_pvalue[$pd]  # lag $pd
+    endif
+
+    # Prepare row-labels
+    strings rlabels = defarray("R-squared", "Adj. R-squared", "P-value SC(1)")
+    if $pd > 1
+        rlabels += sprintf("P-value SC(%d)", $pd)
+    endif
+    rlabels += "P-value ARCH(1)"
+    if $pd > 1
+        rlabels += sprintf("P-value ARCH(%d)", $pd)
+    endif
+    rnameset(table, rlabels)
+
+    return table
+end function
 
 function matrix compute_dynamic_multipliers (const matrix ar_coeff,
                                              const matrix x_coeff,
@@ -393,6 +448,10 @@ function matrices get_dynamic_multipliers (const bundle self,
                                            const bundle Model,
                                            int boot_reps[0::])
     /* Compute dynamic multipliers for target and all xlist series. */
+
+    if self.verbose
+        printf "Start computing dynamic multipliers with b=%d...\n", boot_reps
+    endif
 
     scalar boot_reps = boot_reps == 0 ? 1 : boot_reps    # set to 1 if no bootstrapping
     scalar nvars_yx = 1 + nelem(self.vname_xlist)
@@ -427,6 +486,14 @@ function matrices get_dynamic_multipliers (const bundle self,
         endloop
     endloop
 
+    if self.verbose
+        if boot_reps == 1
+            printf "Succesfully computed dynamic multipliers...\n"
+        else
+            printf "Succesfully computed dynamic multipliers with b=%d...\n", boot_reps
+        endif
+    endif
+
     return DynamicMultipliers
 end function
 
@@ -434,7 +501,22 @@ end function
 function matrix get_longrun_multipliers (const bundle self,
                                          const bundle Model,
                                          int boot_reps[0::])
-    /* */
+    #' Function to compute long-run multipliers for a given model.
+    #'
+    #' @param self A bundle containing the model specification and data.
+    #' @param Model A bundle containing the estimated model coefficients.
+    #' @param boot_reps An integer specifying the number of bootstrap replications. Default is 1 (no bootstrapping).
+    #' @return A matrix of long-run multipliers. If boot_reps > 1, the matrix contains the multipliers for each bootstrap replication.
+    #'         Otherwise, the matrix contains the coefficients and their standard errors.
+    #'
+    #' This function computes the long-run multipliers for each variable in the target and xlist. If bootstrapping is requested,
+    #' it stores the results for each shock in a separate matrix. Otherwise, it computes the coefficients and standard errors.
+    #' The function loops over all variables and bootstrap replications, retrieves the necessary coefficients, and computes the
+    #' long-run multipliers using the `compute_longrun_multiplier` function.
+
+    if self.verbose
+        printf "Start computing long-run multipliers with b=%d...\n", boot_reps
+    endif
 
     scalar boot_reps = boot_reps == 0 ? 1 : boot_reps    # set to 1 if no bootstrapping
     # Loop over all variables in target + xlist
@@ -488,7 +570,15 @@ function matrix get_longrun_multipliers (const bundle self,
         cnameset(LongRunMultipliers, label_vnames)
     else
         rnameset(LongRunMultipliers, label_vnames)
-        cnameset(LongRunMultipliers, "Coeff. SE")
+        cnameset(LongRunMultipliers, defarray("Coeff.", "S.E."))
+    endif
+
+    if self.verbose
+        if boot_reps == 1
+            printf "Succesfully computed long-run multipliers...\n"
+        else
+            printf "Succesfully computed long-run multipliers with b=%d...\n", boot_reps
+        endif
     endif
 
     return LongRunMultipliers
@@ -532,78 +622,6 @@ function matrix compute_longrun_multiplier (const matrix ar_coefficients,
     return {lrbeta, se}
 end function
 
-
-function void runARDL (bundle *b)
-    /* Actual estimation part. */
-
-    errorif(inbundle(b, "finset"), "Before calling runARDL() a second time, call setARDL() first again.")
-
-    series target = b.my
-    list xlist = b.mx
-    list rxlist = mat2list(b.mrx)
-    list ListConstTrend = mat2list(b.mConstTrend)
-
-    lags target
-    string quiet = b.optsil
-
-    if b.verbose
-        print_ardl_info(&b)
-    endif
-
-    # TODO: In principle we could provide an user-defined matrix before calling runARDL()
-    # This could be helpful if want to provide a gappy coefficient matrix with some
-    # zeros or fixed parameters (for whatever reasons).
-
-    ols target ListConstTrend target(-1 to -self.max_lag) \
-        xlist(self.max_lagmin to -self.max_lag) rxlist @quiet
-
-    # Evaluate stability first
-    scalar b.n_coeff = nelem($xlist)
-    scalar b.init_consttrend = 1
-    scalar b.last_consttrend = b.n_deterministics
-    scalar b.ay = b.init_consttrend + 1
-    scalar b.ey = b.ay + self.max_lag - 1
-    b.ARcoef = $coeff[b.ay:b.ey]
-    isstable = model_is_stable(b.ARcoef)
-    scalar nvars = 1 + b.n_deterministics + b.nx
-
-    if !isstable
-        print "Error: The model is unstable. Re-specify your model and try again"
-        b.error = TRUE
-    endif
-
-    if b.error == FALSE
-        scalar b.ax = b.ey + 1
-        scalar b.ex = b.ax + b.nx * (b.conditional_model + self.max_lag) - 1
-        # Zcoef: Const.~X1(0 to -pq)~...~Xk(0 to -pq)~rxlist( dummies etc.)
-        if nelem(ListConstTrend) > 0  # Deterministics + DL coeff needed for ysim()
-            b.Zcoef = $coeff[1:(b.ay-1)] | $coeff[b.ey+1:]
-        else
-            b.Zcoef = $coeff[b.ey+1:]
-        endif
-
-        b.muhat = {$uhat}
-        bootARDL(&b)
-
-        # Compute median and confidence intervals of dynamic multipliers for each variable y and xlist.
-
-        # DM_@vname: lower bound ~ median ~ upper bound
-        matrix lag_criteria = { b.cilevel / 2, 0.5, (1 - b.cilevel / 2) }
-
-        loop i=1..nvars
-            string vname = b.names_variables[$i]
-            b["DM_@vname"] = quantile(b.DMraw_@vname', lag_criteria)'
-        endloop
-        stop
-    else
-        loop i=1..nvars
-            string vname = b.names_variables[$i]
-            matrix b.DM_@vname = NA
-        endloop
-    endif
-
-    b.finset = 1
-end function
 
 
 function series generate_bootstrap_residuals (const series uhat, const string boot_type)
@@ -690,7 +708,7 @@ function bundle bootARDL (const series target,
         #gnuplot target target_boot --with-lines --time-series --output="output.png"
         #stop
 
-        bundle ModelTemp = estimate_var(target_boot, xlist_w_lags, rxlist, self)
+        bundle ModelTemp = estimate_var(target_boot, xlist_w_lags, rxlist, self, FALSE)
         #ModelBoot.coeff_boot[nloop,] = ModelTemp.coeff'           # TODO: Do we really need all coefficients?
         matrix ar_beta = get_ar_coefficients(ModelTemp)'
 
@@ -755,19 +773,145 @@ function series varsimA (const series target,
 end function
 
 
-function void print_ardl_info (const bundle self)
-    /* Print ARDL information. */
+function matrix merge_coeff_longrun_asymp_boot(const matrix coeff_longrun_asym,
+                                               const matrix stderr_longrun_asym,
+                                               const matrix coeff_longrun_boot,
+                                               const matrix stderr_longrun_boot)
+    /* Merge asymptotic and bootstrap long-run multipliers. */
 
-    printf "\n******************************************\n"
-    printf "    ARDL (max-lag = %d) in levels regression\n", self.max_lag
-    printf "******************************************\n"
-    printf "\nSettings for dynamic multiplier computation\n"
+    errorif(rows(coeff_longrun_asym) != rows(coeff_longrun_boot),
+            "Error: Number of rows in asymptotic and bootstrap long-run multipliers do not match.")
+    matrix ret = coeff_longrun_asym ~ stderr_longrun_asym ~ coeff_longrun_boot ~ stderr_longrun_boot
 
-    printf "\nShock type: %s\n", get_shocktype(self.cumulated_multipliers)
-    printf "Bootstrap iterations: %d\n", self.boot_reps
+    return ret
+end function
 
-    printf "Bootstrap type: %s\n", get_bootstrap_type(self.boot_type)
-    printf "Confidence interval (1-alpha): %.2f\n", (1 - self.cilevel)
+
+function matrix eval_boot_longrun_multipliers (const bundle self,
+                                               const matrix multipliers)
+    #' Function to evaluate bootstrap long-run multipliers
+    #'
+    #' This function calculates the mean, median, standard error, and quantiles (2.5% and 97.5%)
+    #' of the given multipliers matrix. It returns a matrix with these statistics.
+    #'
+    #' @param self A bundle containing the model information.
+    #' @param multipliers A matrix of bootstrap multipliers.
+    #'
+    #' @return A matrix with the following columns:
+    #'   - Mean: The mean of the multipliers.
+    #'   - Median: The median of the multipliers.
+    #'   - S.D.: The standard deviation of the multipliers.
+    #'   - 2.5%: The 2.5th percentile of the multipliers.
+    #'   - 97.5%: The 97.5th percentile of the multipliers.
+    #' The rows are labeled with the target variable name and the explanatory variable names.
+
+    matrix lrcoeff_mean = meanc(multipliers)'
+    matrix lrcoeff_q025 = quantile(multipliers, 0.025)'
+    matrix lrcoeff_median = quantile(multipliers, 0.5)'
+    matrix lrcoeff_q975 = quantile(multipliers, 0.975)'
+    matrix lrcoeff_stderr = sdc(multipliers)'
+
+    matrix ret = lrcoeff_mean ~ lrcoeff_median ~ lrcoeff_stderr ~ lrcoeff_q025 ~ lrcoeff_q975
+    cnameset(ret, defarray("Mean(boot)", "Median(boot)", "S.E.(boot)", "2.5%(boot)", "97.5%(boot)"))
+    rlabels = defarray(self.vname_target) + self.vname_xlist
+    rnameset(ret, rlabels)
+
+    return ret
+end function
+
+
+function bundle eval_boot_multipliers (const bundle self,
+                                       const matrices multipliers)
+
+    #scalar nvars_yx = nelem(multipliers)
+    strings shockvars = defarray(self.vname_target) + self.vname_xlist
+    matrix horizvector = seq(0, self.max_horizon, 1)'
+    bundle results = empty
+
+    loop foreach i multipliers
+        # string matname = sprintf("%s->%s", shockvars[i], self.vname_target)
+        string matname = sprintf("%s", shockvars[i])
+        matrix mat = mshape(NA, self.max_horizon+1, 3)
+        mat[,1] = meanr(multipliers[i])'
+        mat[,2] = quantile(multipliers[i]', 0.5)'
+        mat[,3] = sdc(multipliers[i]')'
+        mat = horizvector ~ mat
+
+        cnameset(mat, defarray("Horizon", "Mean", "Median", "S.E."))
+        results["@matname"] = mat
+    endloop
+
+    return results
+end function
+
+
+function void print_longrun (const bundle self)
+
+    matrix table_asym = self.coeff_longrun ~ self.stderr_longrun
+    matrix model_statistics = get_model_statistics(self.Model)
+    strings vnames = defarray(self.vname_target) + self.vname_xlist + rnameget(model_statistics)
+
+    if inbundle(self, "coeff_longrun_boot")
+        #matrix table_boot = merge_coeff_longrun_asymp_boot(self.coeff_longrun_boot,
+                                                           #self.stderr_longrun_boot)
+        # Print mean long-run bootstrap value
+        matrix table_boot = self.coeff_longrun_boot[,1] ~ self.stderr_longrun_boot
+    endif
+    print "\n"
+    printf "\n***********************************************\n"
+    printf "    Long-run multipliers based on ARDL regression\n"
+    printf "*************************************************\n"
+
+    printf "Sample:                 T = %d (%s-%s)\n", self.T, obslabel(self.t1), obslabel(self.t2)
+    printf "Dependent variable:     %s\n", self.vname_target
+    printf "Deterministics:         %s\n",
+        flatten(varnames(list_of_deterministics(self.Model.detflags)), ", ")
+    printf "Explanatory variables:  %s\n", flatten(self.vname_xlist, ", ")
+    if nelem(self.vname_rxlist) > 0
+        printf "Explanatory variables (no lags): %s\n", flatten(self.vname_rxlist, ", ")
+    endif
+    printf "Lag-length (in levels): %d\n", self.max_lag
+    #printf "\nShock type: %s\n", get_shocktype(self.cumulated_multipliers)
+    if self.boot_reps > 0
+        printf "Bootstrap iterations:   %d\n", self.boot_reps
+        printf "Bootstrap type:         '%s'\n", get_bootstrap_type(self.boot_type)
+    endif
+
+
+    if exists(table_boot)
+        printf "\n  ------------------------------------------------------\n"
+        printf "       *** Bootstrap mean long-run effects ***\n"
+        modprint table_boot vnames model_statistics
+    else
+        printf "\n  ------------------------------------------------------\n"
+        printf "       *** Asymptotic results (no bootstraping) ***\n"
+        modprint table_asym vnames
+    endif
+    printf "Note: 'SC(p)' and 'ARCH(p)' refer the test on no serial correlation\n"
+    printf "      of order 'p' and no ARCH effects of order 'p', respectively.\n"
+    printf "  ========================================================\n"
+
+    print self.Model
+    stop
+
+end function
+
+
+function scalar get_rsq (const series target,
+                         const matrix uhat)
+    /* Compute R-squared statistics. */
+
+    series yhat = target - uhat
+    corr target yhat --quiet --uniform
+    scalar rsq = $result[1,2]^2
+
+    return rsq
+end function
+
+function scalar get_adjusted_rsq (const scalar rsq, const int T, const int df)
+    /* Compute the adjusted R-squared statistics. */
+    scalar adj_rsq = 1 - (1 - rsq) * (T - 1) / df
+    return adj_rsq
 end function
 
 
