@@ -1,3 +1,5 @@
+
+# TODO: add support for it
 function void lagselectARDL (bundle *b)
     /* Retrieve optimal lag-length by means of some information lag_criteriaeria. */
 
@@ -155,53 +157,67 @@ function bundle est_ardl (const series target "Endogenous in levels",
     rnameset(self.stderr_longrun, rnameget(coeff_longrun))
     cnameset(self.stderr_longrun, "S.E.(asym)")
 
-    # TODO:
-    /*
-    function scalar mean_lag (const matrix avec,
-                          const matrix bvec)
-        sb = sum(bvec)
-        sa = 1 - sum(avec)
-        p = rows(avec)
-        q = rows(bvec) - 1
+
+    smpl full
+    if self.boot_reps > 0               # Bootstrap estimation
+        bundle ModelBoot = bootARDL(target, xlist, rxlist, self, self.Model)
+
+        # Compute and store dynamic multiplier results
+        matrices ModelBoot.DynamicMultipliers = get_dynamic_multipliers(self, ModelBoot, self.boot_reps)
+        bundle self.multipliers_boot = eval_boot_multipliers(self, ModelBoot.DynamicMultipliers)
+
+        # Compute and store long-run multiplier results
+        matrix ModelBoot.LongRunMultipliers = get_longrun_multipliers(self, ModelBoot, self.boot_reps)
+        # Store long-run multiplier results
+        matrix coeff_longrun = eval_boot_longrun_multipliers(self, ModelBoot.LongRunMultipliers)
+        matrix self.coeff_longrun_boot = coeff_longrun[,1:2]  # retrieve mean and median
+        cnameset(self.coeff_longrun_boot, cnameget(coeff_longrun)[1:2])
+        rnameset(self.coeff_longrun_boot, rnameget(coeff_longrun))
+        matrix self.stderr_longrun_boot = coeff_longrun[,3] # retrieve standard error
+        rnameset(self.stderr_longrun_boot, rnameget(coeff_longrun))
+        cnameset(self.stderr_longrun_boot, "S.E.(boot)")
+    endif
+
+    return self
+end function
+
+
+function matrix get_mean_lags (const bundle Model)
+    /* Get the mean lag of all variables.
+       Kudos to Jack for this code.  */
+    # TODO: In principle, this could also be done for the bootstrapped model estimates
+
+    scalar nX = cols(Model.Model.xlist_coefficients)
+    matrix avec = Model.Model.ar_coefficients
+    scalar sum_avec = 1 - sumc(avec)
+    scalar p = rows(avec)
+    scalar q = p - 1           # TODO: check if this is correct
+
+    matrix mean_lags = mshape(NA, nX, 1)
+
+    loop i=1..nX
+        matrix bvec = Model.Model.xlist_coefficients[,i]
+        sum_bvec = sumc(bvec)
+
         if p > 0
             sda = -seq(1, p) * avec
         else
             sda = 0
         endif
         if q > 0
-            sdb = seq(1, rows(bvec)-1) * bvec[2:]
+            sdb = seq(1, q) * bvec[2:]
         else
             sdb = 0
         endif
-        ret = sdb/sb - sda/sa
-        return ret
-    end function
-    */
 
-    smpl full
-    if self.boot_reps > 0               # Bootstrap estimation
-        bundle ModelBoot = bootARDL(target, xlist, rxlist, self, self.Model)
-        matrices ModelBoot.DynamicMultipliers = get_dynamic_multipliers(self, ModelBoot, self.boot_reps)
+        mean_lags[i] = sdb/sum_bvec - sda/sum_avec
+    endloop
 
-        # Store dynamic multiplier results
-        matrix ModelBoot.LongRunMultipliers = get_longrun_multipliers(self, ModelBoot, self.boot_reps)
-        bundle self.multipliers_boot = eval_boot_multipliers(self, ModelBoot.DynamicMultipliers)
-        # Store long-run multiplier results
-        matrix coeff_longrun = eval_boot_longrun_multipliers(self, ModelBoot.LongRunMultipliers)
-        matrix self.coeff_longrun_boot = coeff_longrun[,1:2]
-        cnameset(self.coeff_longrun_boot, cnameget(coeff_longrun)[1:2])
-        rnameset(self.coeff_longrun_boot, rnameget(coeff_longrun))
-        matrix self.stderr_longrun_boot = coeff_longrun[,3]
-        rnameset(self.stderr_longrun_boot, rnameget(coeff_longrun))
-        cnameset(self.stderr_longrun_boot, "S.E.(boot)")
-    endif
+    cnameset(mean_lags, defarray("Mean lag"))
+    rnameset(mean_lags, Model.vname_xlist)
 
-
-
-    return self
+    return mean_lags
 end function
-
-
 
 
 
@@ -432,7 +448,8 @@ function matrix compute_dynamic_multipliers (const matrix ar_coeff,
                                              const matrix x_coeff,
                                              const int max_horizon[1::],
                                              const bool cumulated_multipliers)
-    /* Compute dynamic multipliers. */
+    /* Compute dynamic multipliers.
+       Kudos to Jack for this code.  */
 
     # TODO: instead of a unit-shock, shocksize could equal the standard deviation
     # of the shock variable -- not of the target series
@@ -464,9 +481,9 @@ function matrices get_dynamic_multipliers (const bundle self,
 
         loop j=1..boot_reps
             if boot_reps > 1
-                matrix arbeta = Model.ar_coefficients[j,]
+                matrix arcoeff = Model.ar_coefficients[j,]
             else
-                matrix arbeta = Model.ar_coefficients
+                matrix arcoeff = Model.ar_coefficients
             endif
 
             if i > 1  # for i==1 for the target variable we do not need xbeta
@@ -481,7 +498,7 @@ function matrices get_dynamic_multipliers (const bundle self,
                 endif
             endif
 
-            DynamicMultipliers[i][,j] = compute_dynamic_multipliers(arbeta, xbeta,
+            DynamicMultipliers[i][,j] = compute_dynamic_multipliers(arcoeff, xbeta,
                                             self.max_horizon, self.cumulated_multipliers)
         endloop
     endloop
@@ -515,7 +532,7 @@ function matrix get_longrun_multipliers (const bundle self,
     #' long-run multipliers using the `compute_longrun_multiplier` function.
 
     if self.verbose
-        printf "Start computing long-run multipliers with b=%d...\n", boot_reps
+        printf "Start computing long-run multipliers with b = %d bootstrap iterations...\n", boot_reps
     endif
 
     scalar boot_reps = boot_reps == 0 ? 1 : boot_reps    # set to 1 if no bootstrapping
@@ -577,7 +594,7 @@ function matrix get_longrun_multipliers (const bundle self,
         if boot_reps == 1
             printf "Succesfully computed long-run multipliers...\n"
         else
-            printf "Succesfully computed long-run multipliers with b=%d...\n", boot_reps
+            printf "Succesfully computed long-run multipliers with b=%d bootstrap iterations.\n", boot_reps
         endif
     endif
 
@@ -590,7 +607,8 @@ function matrix compute_longrun_multiplier (const matrix ar_coefficients,
                                             const matrix vcv)
     /* Compute long-run multipliers. Both matrices are column vectors and represen
       the lag of the AR terms and the i-th exogenous, respectively.
-      If vcv has non-zero elements, the standard error is computed by the Delta method. */
+      If vcv has non-zero elements, the standard error is computed by the Delta method.
+      Kudos to Jack for the original code this is built on.  */
 
     scalar ny = nelem(ar_coefficients)
     scalar nx = nelem(x_coefficients)
@@ -660,6 +678,10 @@ function series generate_bootstrap_residuals (const series uhat, const string bo
     return e
 end function
 
+
+
+############################################################################################################
+############################################################################################################
 
 
 function bundle bootARDL (const series target,
@@ -822,22 +844,37 @@ end function
 
 function bundle eval_boot_multipliers (const bundle self,
                                        const matrices multipliers)
+    #' Evaluates bootstrapped multipliers and returns results in a bundle.
+    #'
+    #' @param self A bundle containing the necessary parameters and data.
+    #' @param multipliers A matrix of bootstrapped multipliers.
+    #' @return A bundle containing the evaluation results for each shock variable.
+    #'
+    #' This function calculates the mean, median, standard error, and confidence intervals
+    #' for the bootstrapped multipliers over a specified horizon. The results are stored
+    #' in a bundle with matrices for each shock variable.
 
-    #scalar nvars_yx = nelem(multipliers)
     strings shockvars = defarray(self.vname_target) + self.vname_xlist
     matrix horizvector = seq(0, self.max_horizon, 1)'
     bundle results = empty
+    scalar alpha = 1 - self.cilevel
+    strings clabels = defarray("Horizon", "Mean", "Median", "S.E.")
+    clabels += sprintf("CI(%g)", 100 * alpha/2)
+    clabels += sprintf("CI(%g)", 100 * (1-alpha/2))
+    scalar ntmp = nelem(clabels) - 1
 
     loop foreach i multipliers
         # string matname = sprintf("%s->%s", shockvars[i], self.vname_target)
         string matname = sprintf("%s", shockvars[i])
-        matrix mat = mshape(NA, self.max_horizon+1, 3)
+        matrix mat = mshape(NA, self.max_horizon+1, ntmp)
         mat[,1] = meanr(multipliers[i])'
         mat[,2] = quantile(multipliers[i]', 0.5)'
         mat[,3] = sdc(multipliers[i]')'
+        mat[,4] = quantile(multipliers[i]', alpha/2)'
+        mat[,5] = quantile(multipliers[i]', 1-alpha/2)'
         mat = horizvector ~ mat
 
-        cnameset(mat, defarray("Horizon", "Mean", "Median", "S.E."))
+        cnameset(mat, clabels)
         results["@matname"] = mat
     endloop
 
@@ -857,10 +894,9 @@ function void print_longrun (const bundle self)
         # Print mean long-run bootstrap value
         matrix table_boot = self.coeff_longrun_boot[,1] ~ self.stderr_longrun_boot
     endif
-    print "\n"
-    printf "\n***********************************************\n"
-    printf "    Long-run multipliers based on ARDL regression\n"
-    printf "*************************************************\n"
+    printf "\n\n*********************************************************\n"
+    printf "           Long-run multipliers based on ARDL regression\n"
+    printf "*********************************************************\n"
 
     printf "Sample:                 T = %d (%s-%s)\n", self.T, obslabel(self.t1), obslabel(self.t2)
     printf "Dependent variable:     %s\n", self.vname_target
@@ -887,13 +923,9 @@ function void print_longrun (const bundle self)
         printf "       *** Asymptotic results (no bootstraping) ***\n"
         modprint table_asym vnames
     endif
-    printf "Note: 'SC(p)' and 'ARCH(p)' refer the test on no serial correlation\n"
-    printf "      of order 'p' and no ARCH effects of order 'p', respectively.\n"
-    printf "  ========================================================\n"
-
-    print self.Model
-    stop
-
+    printf "Note: 'SC(d)' and 'ARCH(d)' refer the test on no serial correlation\n"
+    printf "      of order 'd' and no ARCH effects of order 'd', respectively.\n"
+    printf "*********************************************************\n\n"
 end function
 
 
