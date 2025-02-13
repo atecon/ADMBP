@@ -56,7 +56,7 @@ function bundle get_defaults (void)
     # "parametric", "non_parametric", "wild_uniform", "wild_rademacher", "block"
     string self.boot_type = "block"
     scalar self.boot_reps = 999
-    scalar self.cilevel = 0.95
+    #scalar self.cilevel = 0.95  # TODO: I think this is not needed anymore
     scalar self.verbose = FALSE
     scalar self.stopping_criteria = 0.2
     # CASES: "nc": no const., "uc": unrestricted const., "rc": restricted const.,
@@ -64,7 +64,6 @@ function bundle get_defaults (void)
     # This is following gretl's vecm command.
     string self.det_case = "uc"
     scalar self.error = FALSE
-    scalar self.seasonals = FALSE  # seasonal dummies
 
     return self
 end function
@@ -129,14 +128,10 @@ function bundle est_ardl (const series target "Endogenous in levels",
     add_varnames(&self, xlist, rxlist)
     self.vname_target = argname(target)
 
-    # TODO: add a check for any deterministics in xlist and rxlist
-    # We will add those
+    list xlist_w_lags = get_lags(xlist, self.max_lag, self.conditional_model)
 
     # TODO: in principle we could internally manage missings, but I think the user
     # should be aware of this and remove them before calling setARDL()
-
-    list xlist_w_lags = get_lags(xlist, self.max_lag, self.conditional_model)
-
     smpl +self.max_lag ;
     list All = target xlist_w_lags rxlist
     missings_exist(All)
@@ -144,15 +139,36 @@ function bundle est_ardl (const series target "Endogenous in levels",
     self.t1 = $t1
     self.t2 = $t2
 
-    # Estimate the initial ARDL model
-    bundle self.Model = estimate_var(target, xlist_w_lags, rxlist, self, TRUE)
-    matrix self.Model.ar_coefficients = get_ar_coefficients(self.Model)
+    scalar self.optimal_lag = self.max_lag  # default value
+    if self.lag_criteria != ""
+        if self.verbose
+            printf "Start lag selection using %s...\n", self.lag_criteria
+        endif
 
+        scalar self.optimal_lag = ardl_lagselect(target, xlist, rxlist,
+                                             self.max_lag, self.lag_criteria,
+                                             self.verbose)
+        if self.verbose
+            printf "\nOptimal lag length (%s): %d\n", self.lag_criteria, self.optimal_lag
+        endif
+
+        # Update xlist with optimal lags
+        list xlist_w_lags = get_lags(xlist, self.optimal_lag, self.conditional_model)
+    endif
+
+    # Estimate the initial ARDL model
+    scalar SPECIFICATION_TESTS = TRUE
+    bundle self.Model = estimate_var(target, xlist_w_lags, rxlist, self, SPECIFICATION_TESTS)
+    matrix self.Model.ar_coefficients = get_ar_coefficients(self.Model)
     scalar model_is_stable = model_is_stable(self.Model.ar_coefficients)
     errorif(!model_is_stable, "Error: The model is unstable. Re-specify your model and try again.")
+
     # Retrieve point estimates of the ARDL model
-    matrix self.Model.xlist_coefficients = get_xlist_coefficients(self.Model, xlist_w_lags, self.vname_xlist)
+    matrix self.Model.xlist_coefficients = get_xlist_coefficients(self.Model, xlist_w_lags,
+                                                                  self.vname_xlist)
     matrix self.Model.rxlist_coefficients = get_rxlist_coefficients(self.Model, rxlist)
+    # Currently, only "const" is included in the deterministic
+    # e.g. "time" is part of rxlist
     matrix self.Model.deterministic_coefficients = get_deterministic_coefficients(self.Model)
 
     # Compute and store multipliers using point estimates
@@ -164,7 +180,6 @@ function bundle est_ardl (const series target "Endogenous in levels",
     matrix self.stderr_longrun = coeff_longrun[,2]
     rnameset(self.stderr_longrun, rnameget(coeff_longrun))
     cnameset(self.stderr_longrun, "S.E.(asym)")
-
 
     smpl full
     if self.boot_reps > 0               # Bootstrap estimation
@@ -317,16 +332,17 @@ function matrix get_deterministic_coefficients (const bundle Model)
 end function
 
 function matrix get_rxlist_coefficients (const bundle Model,
-                                         const list rxlist "Exogenous in levels with lags")
-    /* Get coefficients of exogenous variables for which we do not create lags, e.g. dummies. */
+                                         const list rxlist "Exogenous in levels (no lags created)")
+    /* Get coefficients of exogenous variables for which we do not create lags, e.g. dummies, time trend. */
 
     matrix coeffs = empty
     if nelem(rxlist) == 0
         return coeffs
     endif
 
-    scalar start = nelem(Model.coeff) - nelem(rxlist)
+    scalar start = nelem(Model.coeff) - nelem(rxlist) + 1
     matrix coeffs = Model.coeff[start:]
+    errorif(nelem(coeffs) != nelem(rxlist), "Error: Number of coefficients does not match number of exogenous variables.")
 
     return coeffs
 end function
@@ -393,7 +409,7 @@ function bundle estimate_var (const series target "Endogenous in levels",
 
     # TODO: add further options for VARX estimation such as the deterministics
     # see "help var"
-    var self.max_lag target ; xlist rxlist @quiet_opt
+    var self.optimal_lag target ; xlist rxlist @quiet_opt
     bundle Model = $system
 
     if dotests
@@ -475,16 +491,20 @@ function matrices get_dynamic_multipliers (const bundle self,
     /* Compute dynamic multipliers for target and all xlist series. */
 
     if self.verbose
-        printf "Start computing dynamic multipliers with b=%d...\n", boot_reps
+        print "Start computing dynamic multipliers "
+        if boot_reps > 0
+            printf "with %d bootstrap iterations...\n", boot_reps
+        endif
     endif
 
     scalar boot_reps = boot_reps == 0 ? 1 : boot_reps    # set to 1 if no bootstrapping
     scalar nvars_yx = 1 + nelem(self.vname_xlist)
+    scalar nrows = (1+self.max_horizon)
     # store results for each shock in a separate matrix
     matrices DynamicMultipliers = array(nvars_yx)
 
     loop i=1..nvars_yx
-        DynamicMultipliers[i] = mshape(NA, (1+self.max_horizon), boot_reps)
+        DynamicMultipliers[i] = mshape(NA, nrows, boot_reps)
         matrix xbeta = {}
 
         loop j=1..boot_reps
@@ -499,7 +519,7 @@ function matrices get_dynamic_multipliers (const bundle self,
                 if boot_reps > 1
                     # Retrieve lag-coefficients for the selected x variable
                     matrix xbeta = Model.xlist_coefficients[j,]
-                    xbeta = mshape(xbeta, self.max_lag, nelem(self.vname_xlist))
+                    xbeta = mshape(xbeta, self.optimal_lag, nelem(self.vname_xlist))
                     xbeta = xbeta[,i-1]  # coefficient vector for the selected x variable
                 else
                     matrix xbeta = Model.xlist_coefficients[,i-1]
@@ -507,7 +527,8 @@ function matrices get_dynamic_multipliers (const bundle self,
             endif
 
             DynamicMultipliers[i][,j] = compute_dynamic_multipliers(arcoeff, xbeta,
-                                            self.max_horizon, self.cumulated_multipliers)
+                                            self.max_horizon,
+                                            self.cumulated_multipliers)
         endloop
     endloop
 
@@ -540,7 +561,10 @@ function matrix get_longrun_multipliers (const bundle self,
     #' long-run multipliers using the `compute_longrun_multiplier` function.
 
     if self.verbose
-        printf "Start computing long-run multipliers with b = %d bootstrap iterations...\n", boot_reps
+        print "Start computing long-run multipliers "
+        if boot_reps > 0
+            printf "with %d bootstrap iterations...\n", boot_reps
+        endif
     endif
 
     scalar boot_reps = boot_reps == 0 ? 1 : boot_reps    # set to 1 if no bootstrapping
@@ -566,7 +590,7 @@ function matrix get_longrun_multipliers (const bundle self,
             else
                 matrix arbeta = Model.ar_coefficients
                 matrix select = i == 1 ? 0 : (i-1)  # 1st round, select no xlist-variable
-                matrix vcv = get_cov_matrix(Model, self.max_lag, select)
+                matrix vcv = get_cov_matrix(Model, self.optimal_lag, select)
             endif
 
             if i > 1  # for i==1 for the target variable we do not need xbeta
@@ -575,7 +599,7 @@ function matrix get_longrun_multipliers (const bundle self,
                 if boot_reps > 1
                     # Retrieve lag-coefficients for the selected x variable
                     matrix xbeta = Model.xlist_coefficients[j,]
-                    xbeta = mshape(xbeta, self.max_lag, nelem(self.vname_xlist))
+                    xbeta = mshape(xbeta, self.optimal_lag, nelem(self.vname_xlist))
                     xbeta = xbeta[,i-1]  # coefficient vector for the selected x variable
                 else
                     matrix xbeta = Model.xlist_coefficients[,i-1]
@@ -703,21 +727,25 @@ function bundle bootARDL (const series target,
     # We are going to store all coefficients of the VAR model
     #matrix ModelBoot.coeff_boot = mshape(NA, self.boot_reps, self.Model.ncoeff)
     matrix ModelBoot.ar_coefficients = mshape(NA, self.boot_reps, Model.order)
-    matrix ModelBoot.xlist_coefficients = mshape(NA, self.boot_reps, Model.order * nelem(xlist))
+    matrix ModelBoot.xlist_coefficients = mshape(NA, self.boot_reps,
+                                                 Model.order * nelem(xlist))
     matrix ModelBoot.rxlist_coefficients = mshape(NA, self.boot_reps, nelem(rxlist))
-    matrix ModelBoot.deterministic_coefficients = mshape(NA, self.boot_reps, sum(Model.detflags))
+    matrix ModelBoot.deterministic_coefficients = mshape(NA, self.boot_reps,
+                                                         sum(Model.detflags))
 
     scalar ModelBoot.error_convergence = FALSE
     scalar nloop = 1
     scalar nfailed_estimates = 0
 
-    list xlist_w_lags = get_lags(xlist, self.max_lag, self.conditional_model)
+    list xlist_w_lags = get_lags(xlist, self.optimal_lag, self.conditional_model)
 
-    smpl Model.t1 Model.t2  # set sample to the estimation period
-    series uhat = Model.uhat     # residuals from the initial model
+    smpl Model.t1 Model.t2      # set sample to the estimation period
+    series uhat = Model.uhat    # residuals from the initial model
     smpl full
 
     list deterlist = list_of_deterministics(Model.detflags)
+    list xzlist = deterlist xlist_w_lags rxlist
+    matrix xzbeta = build_xzbeta_coeff_vector(Model)
 
     if self.verbose
         print "Start bootstrap estimation..."
@@ -725,13 +753,11 @@ function bundle bootARDL (const series target,
 
     loop while nloop <= self.boot_reps
         series innovations = generate_bootstrap_residuals(uhat, self.boot_type)
-        matrix xzbeta = build_xzbeta_coeff_vector(Model)
-        list xzlist = deterlist xlist_w_lags rxlist
-        series target_boot = varsimA(target, Model.ar_coefficients, xzlist, xzbeta,
-                                     innovations, self.max_lag)
+        series target_boot = varsimA(target, Model.ar_coefficients, xzlist,
+                                     xzbeta, innovations, self.optimal_lag)
         # For debugging purposes
         #gnuplot target target_boot --with-lines --time-series --output="output.png"
-        #stop
+
 
         bundle ModelTemp = estimate_var(target_boot, xlist_w_lags, rxlist, self, FALSE)
         #ModelBoot.coeff_boot[nloop,] = ModelTemp.coeff'           # TODO: Do we really need all coefficients?
@@ -755,7 +781,8 @@ function bundle bootARDL (const series target,
                                                         self.vname_xlist))'
         if nelem(rxlist) > 0
             # Form per row: a ~ b ~ ...
-            ModelBoot.rxlist_coefficients[nloop,] = vec(get_rxlist_coefficients(ModelTemp, rxlist))'
+            ModelBoot.rxlist_coefficients[nloop,] = \
+                vec(get_rxlist_coefficients(ModelTemp, rxlist))'
         endif
 
         nloop++
@@ -770,17 +797,17 @@ end function
 
 
 function series varsimA (const series target,
-                         const matrix targetbeta "Coeff. vector of target",
+                         const matrix ar_coeff "Auto-regressive coefficients",
                          const list xlist,
-                         const matrix xbeta,
+                         const matrix x_coeff "Exogenous coefficients",
                          const series e "innovations",
-                         int p[1::] "Lag length")
+                         const int p[1::] "Lag length")
     /* Simulate a VAR process. Thankfully borrowed from Jack. */
 
     matrix my = {target}
-    series m = lincomb(xlist, xbeta)
+    series m = lincomb(xlist, x_coeff)
     scalar T = minr(rows({e}) ~ rows({m}))
-    matrix A = targetbeta'
+    matrix A = ar_coeff'
     if p > 1
         matrix A |= (I(p-1) ~ 0)
     endif
@@ -792,7 +819,9 @@ function series varsimA (const series target,
     if p > 1
         S = my[1:p-1] | S
     endif
-    series x = S
+
+    # Set initial values to NA (due to lags)
+    series x = mshape(NA, p, 1) | S
 
     return x
 end function
@@ -910,7 +939,7 @@ function void print_longrun (const bundle self)
     if nelem(self.vname_rxlist) > 0
         printf "Explanatory variables (no lags): %s\n", flatten(self.vname_rxlist, ", ")
     endif
-    printf "Lag-length (in levels): %d\n", self.max_lag
+    printf "Lag-length (in levels): %d\n", self.optimal_lag
     #printf "\nShock type: %s\n", get_shocktype(self.cumulated_multipliers)
     if self.boot_reps > 0
         printf "Bootstrap iterations:   %d\n", self.boot_reps

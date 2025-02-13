@@ -20,19 +20,18 @@ smpl Lall --no-missing   # avoid missing values
 # Lag selection by hand
 list rxlist = time
 scalar optimal_lag = ardl_lagselect(c, xlist, rxlist, 12, "AIC")
-print optimal_lag
-
 
 
 
 print "Start ARDL estimation"
-
-
 bundle Opts = _(max_lag = 6, boot_reps = 99,
                 cumulated_multipliers = TRUE,
-                max_horizon = 20)
+                max_horizon = 20,
+                lag_criteria = "AIC",
+                verbose = TRUE)
 bundle Model = est_ardl(c, xlist, rxlist, Opts)
 print "Finished  ARDL estimation"
+
 
 # Print multipliers for the w variable
 bundle Opts = _(filename="multiplier_w.png")
