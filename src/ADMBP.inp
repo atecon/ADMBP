@@ -9,17 +9,14 @@ function scalar ardl_lagselect (const series y,
     # TODO: make use of "criteria" package which includes AICc
 
     string lag_criteria = toupper(lag_criteria)
+    string opt_silent = verbose == FALSE ? "--silent" : "--quiet"
 
     # Prepare lags
-    list y_lags = y(-1 to -max_lag)
     list xlist_lags = xlist(-1 to -max_lag)
     list Xall = xlist_lags rxlist
 
-    string opt_silent = verbose == FALSE ? "--silent" : "--quiet"
-
     var max_lag y ; Xall --lagselect @opt_silent
-    scalar lagselect_criteria_id = get_lagselect_criteria_id(lag_criteria)
-    scalar opt_lag = iminc($test[,3 + lagselect_criteria_id])
+    scalar opt_lag = iminc($test[,3 + get_lagselect_criteria_id(lag_criteria)])
 
     return opt_lag
 end function
