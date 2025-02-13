@@ -16,11 +16,22 @@ list xlist = inc w
 list Lall = c xlist
 smpl Lall --no-missing   # avoid missing values
 
+
+# Lag selection by hand
+list rxlist = time
+scalar optimal_lag = ardl_lagselect(c, xlist, rxlist, 12, "AIC")
+print optimal_lag
+
+
+
+
 print "Start ARDL estimation"
+
+
 bundle Opts = _(max_lag = 6, boot_reps = 99,
                 cumulated_multipliers = TRUE,
                 max_horizon = 20)
-bundle Model = est_ardl(c, xlist, null, Opts)
+bundle Model = est_ardl(c, xlist, rxlist, Opts)
 print "Finished  ARDL estimation"
 
 # Print multipliers for the w variable
@@ -35,7 +46,6 @@ plot_multiplier(Model, null, Opts)
 
 print "Print the bootstrap long-run multipliers"
 print_longrun(Model)
-
 
 print "Compute and print mean lags"
 matrix mean_lags = get_mean_lags(Model)

@@ -1,23 +1,35 @@
-# TODO: add support for it
-# TODO: This function is already included in "cointARDL"
-function void ardl_lagselect (bundle *b)
-    /* Retrieve optimal lag-length by means of some information lag_criteriaeria. */
+function scalar ardl_lagselect (const series y,
+                                 const list xlist,
+                                 const list rxlist,
+                                 const int max_lag[2::],
+                                 string lag_criteria,
+                                 const bool verbose[FALSE])
+    /* Retrieve optimal lag-length by means of some information lag_criteria. */
 
     # TODO: make use of "criteria" package which includes AICc
 
-    errorif(self.max_lag == 1, "You have to set the maximum lag-length 'pq' > 1.")
+    string lag_criteria = toupper(lag_criteria)
 
-    series y = b.my
-    list xlist = b.mx
-    list rxlist = b.mrx
+    # Prepare lags
+    list y_lags = y(-1 to -max_lag)
+    list xlist_lags = xlist(-1 to -max_lag)
+    list Xall = xlist_lags rxlist
 
-    list Xlist = xlist rxlist
+    string opt_silent = verbose == FALSE ? "--silent" : "--quiet"
 
-    string opt_silent = b.verbose == FALSE ? "--silent" : "--quiet"
-    string opt_deterministics = b.with_trend == TRUE ? "--trend" : ""
+    var max_lag y ; Xall --lagselect @opt_silent
+    scalar lagselect_criteria_id = get_lagselect_criteria_id(lag_criteria)
+    scalar opt_lag = iminc($test[,3 + lagselect_criteria_id])
 
-    var self.max_lag y ; Xlist --lagselect @opt_deterministics @opt_silent
-    scalar self.max_lag = iminc($test[,3 + b.lag_criteria])
+    return opt_lag
+end function
+
+
+function scalar get_lagselect_criteria_id (const string lag_criteria)
+    /* Retrieve the ID of the lag selection criteria. */
+
+    bundle Map = _(AIC = 1, BIC = 2, HQC = 3)
+    return Map[lag_criteria]
 end function
 
 
@@ -35,13 +47,12 @@ function scalar model_is_stable (matrix ARcoef)
   endif
 end function
 
-
 function bundle get_defaults (void)
     /* Default parameter values for ARDL estimation. */
 
     bundle self = empty
     scalar self.max_lag = $pd
-    string self.lag_criteria = "AIC"
+    string self.lag_criteria = ""  # per default no lag selection
     scalar self.conditional_model = FALSE
     scalar self.cumulated_multipliers = FALSE
     scalar self.max_horizon = 12
