@@ -1,8 +1,10 @@
 clear
 set verbose off
-set seed 1234
+#set seed 1234
 
-include ADMBP.gfn
+#include ADMBP.gfn
+include /home/admin-tarassow/git/ADMBP/src/ADMBP.inp
+include SB.gfn
 
 open AWM.gdt --quiet
 
@@ -11,10 +13,36 @@ series inc = ln(YER)
 series c = ln(PCR)
 series w = ln(WLN/PCD)
 list xlist = inc w
-list rxlist = const time
-list Lall = c xlist rxlist
-
+list Lall = c xlist
 smpl Lall --no-missing   # avoid missing values
+
+print "Start ARDL estimation"
+bundle Opts = _(max_lag = 6, boot_reps = 99,
+                cumulated_multipliers = TRUE,
+                max_horizon = 20)
+bundle Model = est_ardl(c, xlist, null, Opts)
+print "Finished  ARDL estimation"
+
+# Print multipliers for the w variable
+bundle Opts = _(filename="multiplier_w.png")
+plot_multiplier(Model, "w", Opts)
+
+# Print multipliers for all variables - tweak plot
+bundle Opts = _(filename="multipliers_all.png",
+                alpha=0.2, fontsize=8,
+                gnuplot_cmd="set key top right")
+plot_multiplier(Model, null, Opts)
+
+print "Print the bootstrap long-run multipliers"
+print_longrun(Model)
+
+
+print "Compute and print mean lags"
+matrix mean_lags = get_mean_lags(Model)
+print mean_lags
+stop
+
+
 
 # ARDL parameters
 scalar pqmax = 4

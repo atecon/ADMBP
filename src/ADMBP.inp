@@ -1,6 +1,6 @@
-
 # TODO: add support for it
-function void lagselectARDL (bundle *b)
+# TODO: This function is already included in "cointARDL"
+function void ardl_lagselect (bundle *b)
     /* Retrieve optimal lag-length by means of some information lag_criteriaeria. */
 
     # TODO: make use of "criteria" package which includes AICc
@@ -162,9 +162,9 @@ function bundle est_ardl (const series target "Endogenous in levels",
     if self.boot_reps > 0               # Bootstrap estimation
         bundle ModelBoot = bootARDL(target, xlist, rxlist, self, self.Model)
 
-        # Compute and store dynamic multiplier results
-        matrices ModelBoot.DynamicMultipliers = get_dynamic_multipliers(self, ModelBoot, self.boot_reps)
-        bundle self.multipliers_boot = eval_boot_multipliers(self, ModelBoot.DynamicMultipliers)
+        # Compute and store bootstrap dynamic multipliers
+        matrices self.multipliers_boot = get_dynamic_multipliers(self, ModelBoot, self.boot_reps)
+        # We do not compute summary statistics for the bootstrapped dynamic multipliers here
 
         # Compute and store long-run multiplier results
         matrix ModelBoot.LongRunMultipliers = get_longrun_multipliers(self, ModelBoot, self.boot_reps)
@@ -679,11 +679,6 @@ function series generate_bootstrap_residuals (const series uhat, const string bo
 end function
 
 
-
-############################################################################################################
-############################################################################################################
-
-
 function bundle bootARDL (const series target,
                           const list xlist,
                           list rxlist[null],
@@ -843,22 +838,23 @@ end function
 
 
 function bundle eval_boot_multipliers (const bundle self,
-                                       const matrices multipliers)
+                                       const matrices multipliers,
+                                       const scalar alpha)
     #' Evaluates bootstrapped multipliers and returns results in a bundle.
     #'
     #' @param self A bundle containing the necessary parameters and data.
-    #' @param multipliers A matrix of bootstrapped multipliers.
+    #' @param multipliers A matrix array of bootstrapped multipliers.
     #' @return A bundle containing the evaluation results for each shock variable.
     #'
-    #' This function calculates the mean, median, standard error, and confidence intervals
+    #' This function calculates the mean, median, and confidence intervals
     #' for the bootstrapped multipliers over a specified horizon. The results are stored
     #' in a bundle with matrices for each shock variable.
 
+    #errorif(alpha <= 0.01 || alpha >= 0.99, "alpha must be in (0.01, 0.99).")
     strings shockvars = defarray(self.vname_target) + self.vname_xlist
     matrix horizvector = seq(0, self.max_horizon, 1)'
     bundle results = empty
-    scalar alpha = 1 - self.cilevel
-    strings clabels = defarray("Horizon", "Mean", "Median", "S.E.")
+    strings clabels = defarray("Horizon", "Mean", "Median")
     clabels += sprintf("CI(%g)", 100 * alpha/2)
     clabels += sprintf("CI(%g)", 100 * (1-alpha/2))
     scalar ntmp = nelem(clabels) - 1
@@ -869,9 +865,9 @@ function bundle eval_boot_multipliers (const bundle self,
         matrix mat = mshape(NA, self.max_horizon+1, ntmp)
         mat[,1] = meanr(multipliers[i])'
         mat[,2] = quantile(multipliers[i]', 0.5)'
-        mat[,3] = sdc(multipliers[i]')'
-        mat[,4] = quantile(multipliers[i]', alpha/2)'
-        mat[,5] = quantile(multipliers[i]', 1-alpha/2)'
+        mat[,3] = quantile(multipliers[i]', alpha/2)'
+        mat[,4] = quantile(multipliers[i]', 1-alpha/2)'
+        #mat[,5] = sdc(multipliers[i]')'
         mat = horizvector ~ mat
 
         cnameset(mat, clabels)
@@ -913,7 +909,6 @@ function void print_longrun (const bundle self)
         printf "Bootstrap type:         '%s'\n", get_bootstrap_type(self.boot_type)
     endif
 
-
     if exists(table_boot)
         printf "\n  ------------------------------------------------------\n"
         printf "       *** Bootstrap mean long-run effects ***\n"
@@ -945,6 +940,126 @@ function scalar get_adjusted_rsq (const scalar rsq, const int T, const int df)
     scalar adj_rsq = 1 - (1 - rsq) * (T - 1) / df
     return adj_rsq
 end function
+
+
+function void plot_multiplier (const bundle Model,
+                               string vname[null],
+                               bundle PlotOpts[null])
+    /* Function for plotting dynamic multipliers. */
+
+    set force_decpoint on
+    # TODO: add more options for the plot
+
+    if exists(PlotOpts)
+        bundle PlotOpts = PlotOpts + plot_defaults()
+    else
+        bundle PlotOpts = plot_defaults()
+    endif
+
+    strings vnames = exists(vname) ? defarray(vname) : \
+                     (defarray(Model.vname_target) + Model.vname_xlist)
+    strings Plots = empty
+
+    strings clabels = defarray("Mean", "Median")
+    clabels += sprintf("LB(%g)", 100 * PlotOpts.alpha/2)
+    clabels += sprintf("UB(%g)", 100 * (1-PlotOpts.alpha/2))
+    clabels += "Horizon"
+    bundle DynamicMultipliers = eval_boot_multipliers(Model,
+                                                      Model.multipliers_boot,
+                                                      PlotOpts.alpha)
+
+    loop foreach i vnames
+        matrix multiplier = DynamicMultipliers["$i"]
+        multiplier = multiplier[,2:end] ~ multiplier[,1]  # move horizon to the end
+        cnameset(multiplier, clabels)
+
+        # Preparation for plotting
+        if !inbundle(PlotOpts, "title")
+            string title = get_subplot_title(Model.vname_target, vnames[i],
+                                             get_shocktype(Model.cumulated_multipliers))
+        endif
+        Plots = Plots + doplot(multiplier, PlotOpts, title)
+    endloop
+    set force_decpoint off
+
+    # Create actual plot
+    string filename = exists(PlotOpts.filename) ? PlotOpts.filename : "display"
+
+    if nelem(Plots) == 1
+        gridplot Plots --output="@filename"
+    else
+        gridplot Plots --width=900 --height=600 --fontsize=PlotOpts.fontsize \
+            --output="@filename"
+    endif
+
+end function
+
+function string doplot (const matrix input,
+                        const bundle PlotOpts,
+                        const string title)
+    /* Function for plotting dynamic multipliers. */
+
+    string ret = empty
+
+    plot input
+        options with-lines single-yaxis
+        literal set key top right
+        printf "set title \"%s\"", title
+        printf "set xlabel \"%s\" offset 0,1", PlotOpts.xlabel
+        printf "set ylabel \"%s\"", PlotOpts.ylabel
+        literal set y2tics
+        literal set xtics out offset 0,0.7	# Move xtics closer to the x-axis
+        literal set ytics out
+        #2) put the border more to the background by applying it
+        # only on the left and bottom part and put it and the tics in gray
+        printf "set style line 11 lc rgb \"#808080\" lt 1"
+        literal set border 3 back ls 11	# get rid of upper + left border
+        literal set tics nomirror
+        # add a slight grid to make it easier to follow the exact
+        # position of the curves
+        printf "set style line 12 lc rgb \"#808080\" lt 0 lw 1"
+        literal set grid back ls 12
+        printf "%s", PlotOpts.gnuplot_cmd
+        # Line Styles
+        printf "set linetype 1 lc rgb 'black' dt 1 lw %d", PlotOpts.lindewidth
+        printf "set linetype 2 lc rgb 'red' dt 2 lw %d", PlotOpts.lindewidth
+        printf "set linetype 3 lc rgb 'grey' dt 2 lw %d", PlotOpts.lindewidth
+        printf "set linetype 4 lc rgb 'grey' dt 2 lw %d", PlotOpts.lindewidth
+    end plot --outbuf=ret
+
+    return ret
+end function
+
+function string get_subplot_title (const string target,
+                                   const string shock,
+                                   const string shocktype)
+    /* Create a title for the subplot. */
+
+    string ret = sprintf("%s --> %s  (%s shock)",
+                         shock, target, shocktype)
+
+    return ret
+end function
+
+function bundle plot_defaults (void)
+    /* Default parameter values of plotting dynamic multipliers. */
+
+    bundle self
+    #string self.title = ""
+    string self.ylabel = ""
+    string self.xlabel = "Horizon"
+    scalar self.fontsize = 10
+    scalar self.lindewidth = 2
+    string self.filename = "display"
+    string self.gnuplot_cmd = "" # additional gnuplot commands
+    scalar self.alpha = 0.1
+
+    return self
+end function
+
+
+############################################################################################################
+############################################################################################################
 
 
 function void ECMinfo (bundle *b)
@@ -1136,19 +1251,6 @@ function void ECterm (bundle *b)
     endif
 end function
 
-function bundle plot_defaults (void)
-    /* Default parameter values of plotting dynamic multipliers. */
-
-    bundle self
-    string self.title = ""
-    string self.ylabel = ""
-    string self.xlabel = "max_horizonon"
-    scalar self.fontsize = 10
-    scalar self.lindewidth = 1
-    string self.filename = "display"
-
-    return self
-end function
 
 
 function void irfARDL (const matrix mplot,
