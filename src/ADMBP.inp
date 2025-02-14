@@ -1035,7 +1035,7 @@ function void plot_multiplier (const bundle Model,
     if nelem(Plots) == 1
         gridplot Plots --output="@filename"
     else
-        gridplot Plots --width=900 --height=800 --fontsize=PlotOpts.fontsize \
+        gridplot Plots --width=PlotOpts.width --height=PlotOpts.height --fontsize=PlotOpts.fontsize \
             --output="@filename"
     endif
 
@@ -1069,9 +1069,9 @@ function string doplot (const matrix input,
         printf "%s", PlotOpts.gnuplot_cmd
         # Line Styles
         printf "set linetype 1 lc rgb 'black' dt 1 lw %d", PlotOpts.lindewidth
-        printf "set linetype 2 lc rgb 'red' dt 2 lw %d", PlotOpts.lindewidth
-        printf "set linetype 3 lc rgb 'grey' dt 2 lw %d", PlotOpts.lindewidth
-        printf "set linetype 4 lc rgb 'grey' dt 2 lw %d", PlotOpts.lindewidth
+        printf "set linetype 2 lc rgb 'red' dt 1 lw %d", PlotOpts.lindewidth
+        printf "set linetype 3 lc rgb 'grey' dt 1 lw %d", PlotOpts.lindewidth
+        printf "set linetype 4 lc rgb 'grey' dt 1 lw %d", PlotOpts.lindewidth
     end plot --outbuf=ret
 
     return ret
@@ -1100,6 +1100,8 @@ function bundle plot_defaults (void)
     string self.filename = "display"
     string self.gnuplot_cmd = "" # additional gnuplot commands
     scalar self.alpha = 0.1
+    scalar self.width = 900
+    scalar self.height = 700
 
     return self
 end function
