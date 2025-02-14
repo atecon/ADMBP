@@ -188,6 +188,8 @@ function bundle est_ardl (const series target "Endogenous in levels",
         # Compute and store bootstrap dynamic multipliers
         matrices self.multipliers_boot = get_dynamic_multipliers(self, ModelBoot, self.boot_reps)
         # We do not compute summary statistics for the bootstrapped dynamic multipliers here
+        # This is, instead, done when the user calls functions for plotting or printing the multipliers.
+        # This allows the suer to specify the desired confidence level and other options.
 
         # Compute and store long-run multiplier results
         matrix ModelBoot.LongRunMultipliers = get_longrun_multipliers(self, ModelBoot, self.boot_reps)
@@ -895,9 +897,7 @@ function bundle eval_boot_multipliers (const bundle self,
     clabels += sprintf("CI(%g)", 100 * (1-alpha/2))
     scalar ntmp = nelem(clabels) - 1
 
-    loop foreach i multipliers
-        # string matname = sprintf("%s->%s", shockvars[i], self.vname_target)
-        string matname = sprintf("%s", shockvars[i])
+    loop i=1..nelem(multipliers)
         matrix mat = mshape(NA, self.max_horizon+1, ntmp)
         mat[,1] = meanr(multipliers[i])'
         mat[,2] = quantile(multipliers[i]', 0.5)'
@@ -907,8 +907,12 @@ function bundle eval_boot_multipliers (const bundle self,
         mat = horizvector ~ mat
 
         cnameset(mat, clabels)
+        string matname = sprintf("%s", shockvars[i])
         results["@matname"] = mat
     endloop
+
+    errorif(nelem(results) != nelem(shockvars),
+            "Number of results does not match number of shock variables.")
 
     return results
 end function
@@ -1003,8 +1007,10 @@ function void plot_multiplier (const bundle Model,
     bundle DynamicMultipliers = eval_boot_multipliers(Model,
                                                       Model.multipliers_boot,
                                                       PlotOpts.alpha)
-
     loop foreach i vnames
+        errorif(inbundle(DynamicMultipliers, vnames[i]) == FALSE,
+                sprintf("no dynamic multipliers found for variable '%s'.", "$i"))
+
         matrix multiplier = DynamicMultipliers["$i"]
         multiplier = multiplier[,2:end] ~ multiplier[,1]  # move horizon to the end
         cnameset(multiplier, clabels)
@@ -1014,6 +1020,11 @@ function void plot_multiplier (const bundle Model,
             string title = get_subplot_title(Model.vname_target, vnames[i],
                                              get_shocktype(Model.cumulated_multipliers))
         endif
+
+        if i > 1  # switch off legend
+            string PlotOpts.gnuplot_cmd = "; set key off;"
+        endif
+
         Plots = Plots + doplot(multiplier, PlotOpts, title)
     endloop
     set force_decpoint off
@@ -1024,7 +1035,7 @@ function void plot_multiplier (const bundle Model,
     if nelem(Plots) == 1
         gridplot Plots --output="@filename"
     else
-        gridplot Plots --width=900 --height=600 --fontsize=PlotOpts.fontsize \
+        gridplot Plots --width=900 --height=800 --fontsize=PlotOpts.fontsize \
             --output="@filename"
     endif
 
