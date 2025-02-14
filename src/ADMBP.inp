@@ -741,7 +741,6 @@ function bundle bootARDL (const series target,
 
     smpl Model.t1 Model.t2      # set sample to the estimation period
     series uhat = Model.uhat    # residuals from the initial model
-    smpl full
 
     list deterlist = list_of_deterministics(Model.detflags)
     list xzlist = deterlist xlist_w_lags rxlist
@@ -751,13 +750,15 @@ function bundle bootARDL (const series target,
         print "Start bootstrap estimation..."
     endif
 
+    smpl -self.optimal_lag ;  # Important to make sure vectors can be cast to series
+
     loop while nloop <= self.boot_reps
         series innovations = generate_bootstrap_residuals(uhat, self.boot_type)
         series target_boot = varsimA(target, Model.ar_coefficients, xzlist,
                                      xzbeta, innovations, self.optimal_lag)
+
         # For debugging purposes
         #gnuplot target target_boot --with-lines --time-series --output="output.png"
-
 
         bundle ModelTemp = estimate_var(target_boot, xlist_w_lags, rxlist, self, FALSE)
         #ModelBoot.coeff_boot[nloop,] = ModelTemp.coeff'           # TODO: Do we really need all coefficients?
@@ -819,9 +820,7 @@ function series varsimA (const series target,
     if p > 1
         S = my[1:p-1] | S
     endif
-
-    # Set initial values to NA (due to lags)
-    series x = mshape(NA, p, 1) | S
+    series x = S
 
     return x
 end function
