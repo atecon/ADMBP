@@ -19,29 +19,21 @@ smpl Lall --no-missing   # avoid missing values
 
 # Lag selection by hand
 list rxlist = time
-scalar optimal_lag = ardl_lagselect(c, xlist, rxlist, 12, "AIC")
-
+scalar CONDITIONAL_ARDL = FALSE
+scalar optimal_lag = ardl_lagselect(c, xlist, rxlist, 4,
+                                    "AIC", CONDITIONAL_ARDL)
 
 
 print "Start ARDL estimation"
-bundle Opts = _(max_lag = 6, boot_reps = 99,
-                cumulated_multipliers = TRUE,
-                max_horizon = 20,
+bundle Opts = _(max_lag = 8, boot_reps = 99,
+                cumulated_multipliers = FALSE,
+                max_horizon = 25,
                 lag_criteria = "AIC",
-                verbose = TRUE)
+                verbose = TRUE,
+                conditional_model = CONDITIONAL_ARDL,
+                auto_omit_rxlist = TRUE)
 bundle Model = est_ardl(c, xlist, rxlist, Opts)
 print "Finished  ARDL estimation"
-
-
-# Print multipliers for the w variable
-bundle Opts = _(filename="multiplier_w.png")
-plot_multiplier(Model, "w", Opts)
-
-# Print multipliers for all variables - tweak plot
-bundle Opts = _(filename="multipliers_all.png",
-                alpha=0.2, fontsize=8,
-                gnuplot_cmd="set key top right")
-plot_multiplier(Model, null, Opts)
 
 print "Print the bootstrap long-run multipliers"
 print_longrun(Model)
@@ -49,8 +41,19 @@ print_longrun(Model)
 print "Compute and print mean lags"
 matrix mean_lags = get_mean_lags(Model)
 print mean_lags
-stop
 
+
+# Print multipliers for the w variable
+bundle Opts = _(filename="multiplier_w.png")
+plot_multiplier(Model, "inc", Opts)
+
+# Print multipliers for all variables - tweak plot
+bundle Opts = _(filename="multipliers_all.png",
+                alpha=0.2, fontsize=8,
+                gnuplot_cmd="set key top right")
+plot_multiplier(Model, null, Opts)
+
+stop
 
 
 # ARDL parameters

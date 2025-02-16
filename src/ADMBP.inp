@@ -10,7 +10,7 @@ function scalar ardl_lagselect (const series y,
     # TODO: make use of "criteria" package which includes AICc
 
     string lag_criteria = toupper(lag_criteria)
-    string opt_silent = verbose == FALSE ? "--silent" : "--quiet"
+    string opt_silent = verbose == FALSE ? "--quiet" : ""
     scalar pmin = conditional_model == TRUE ? 0 : 1
     matrix criteria = seq(pmin+conditional_model, max_lag)' ~ zeros(max_lag, 3)
 
@@ -168,7 +168,11 @@ function bundle est_ardl (const series target "Endogenous in levels",
     matrix self.Model.ar_coefficients = get_ar_coefficients(self.Model)
     scalar self.Model.conditional_model = self.conditional_model
     scalar model_is_stable = model_is_stable(self.Model.ar_coefficients)
-    errorif(!model_is_stable, "Error: The model is unstable. Re-specify your model and try again.")
+    if !model_is_stable
+        print "Error: The model is unstable. Re-specify your model and try again."
+        self.error = TRUE
+        return self
+    endif
 
     # Retrieve point estimates of the ARDL model
     matrix self.Model.xlist_coefficients = get_xlist_coefficients(self.Model, xlist_w_lags,
@@ -289,7 +293,6 @@ function matrix get_cov_matrix (const bundle Model,
     #' corresponding to the y terms and the specified x variable (if any). The resulting matrix
     #' is the covariance matrix for these terms.
 
-    matrix vcv = Model.xtxinv
     scalar n_deterministics = sum(Model.detflags)
     matrix mask = zeros(Model.ncoeff)
 
@@ -306,11 +309,12 @@ function matrix get_cov_matrix (const bundle Model,
     endif
 
     # Select the rows and columns of the vcv matrix
-    matrix ret = selifr(vcv, mask)
+    matrix ret = selifr(Model.vcv, mask)
     ret = selifc(ret, mask')
 
     return ret
 end function
+
 
 function list list_of_deterministics (const matrix detflags)
     /* Return list of deterministics. */
@@ -332,8 +336,8 @@ end function
 function matrix get_deterministic_coefficients (const bundle Model)
     /* Get coefficients of deterministic terms. */
 
+    # Currently, the only deterministic term is "const"
     matrix coeffs = empty
-
     scalar n_deterministics = sum(Model.detflags)
     if n_deterministics == 0
         return coeffs
@@ -375,13 +379,13 @@ function matrix get_xlist_coefficients (const bundle Model,
         return coeffs
     endif
 
-    scalar n_deterministics = sum(Model.detflags)
-    scalar start = 1 + n_deterministics + Model.order  # skip deterministics + AR coefficients
+    # skip deterministics + AR coefficients
+    scalar start = 1 + sum(Model.detflags) + Model.optimal_lag
     scalar n_xlist_w_lags = nelem(xlist_w_lags)
     scalar ende = start + n_xlist_w_lags - 1
     matrix coeffs = Model.coeff[start:ende]
 
-    scalar nrows = Model.order + Model.conditional_model
+    scalar nrows = Model.optimal_lag + Model.conditional_model
     coeffs = mshape(coeffs, nrows, nelem(vnames))
     cnameset(coeffs, vnames)
 
@@ -390,7 +394,12 @@ end function
 
 function matrix get_ar_coefficients (const bundle Model)
     /* Get AR coefficients. Note: we assume there exist AR-coeffients */
-    return vec(Model.A[1,])
+    scalar start = 1 + sum(Model.detflags)
+    scalar ende = Model.optimal_lag + 1
+    matrix coeff = Model.coeff[start:ende]
+    #vec(Model.A[1,])
+
+    return coeff
 end function
 
 function bundle collect_post_est_info (const bundle Model)
@@ -411,6 +420,7 @@ function list get_lags (const list xlist, const scalar max_lag, const bool condi
     return xlist_with_lags
 end function
 
+
 function bundle estimate_var (const series target "Endogenous in levels",
                               const list xlist "Exogenous in levels",
                               list rxlist[null] "Restricted I0s excl. intercept",
@@ -419,23 +429,35 @@ function bundle estimate_var (const series target "Endogenous in levels",
     /* Estimate a 1-dimensional VARX model. */
 
     list Exog = xlist rxlist
-    string quiet_opt = self.verbose == FALSE ? "--silent" : ""
+    string quiet_opt = self.verbose == FALSE ? "--quiet" : ""
+    string quiet_opt_omit = self.verbose == FALSE ? "--silent" : ""
     string pdstring = sprintf("%d", $pd)
 
-    # TODO: add further options for VARX estimation such as the deterministics
-    # see "help var"
-    var self.optimal_lag target ; xlist rxlist @quiet_opt
-    bundle Model = $system
+    ols target const target(-1 to -self.optimal_lag) Exog @quiet_opt
+    bundle Model = $model
+    scalar Model.optimal_lag = self.optimal_lag
+    matrix Model.detflags = {1,0,0}  # TODO: currently only const is supported
+
+    if nelem(rxlist) && self.auto_omit_rxlist == TRUE
+        omit rxlist --auto=0.10 @quiet_opt_omit
+    endif
 
     if dotests
-        modtest @pdstring --autocorr --silent
+        # p=1
+        modtest 1 --autocorr --silent
         matrix Model.autocorr_test = $test
         matrix Model.autocorr_pvalue = $pvalue
-        modtest @pdstring --arch --silent
-        matrix Model.arch_test = $test
-        matrix Model.arch_pvalue = $pvalue
-        scalar Model.rsq = get_rsq(target, Model.uhat[,1])
-        scalar Model.rsq_adj = get_adjusted_rsq(Model.rsq, Model.T, Model.df)
+        # p=pd
+        modtest @pdstring --autocorr --silent
+        Model.autocorr_test |= $test
+        Model.autocorr_pvalue |= $pvalue
+        # White's test
+        modtest @pdstring --white-nocross --silent
+        matrix Model.white_test = $test
+        matrix Model.white_pvalue = $pvalue
+        # R^2 and adjusted R^2
+        scalar Model.rsq = $rsq
+        scalar Model.rsq_adj = get_adjusted_rsq($rsq, Model.T, Model.df)
     endif
 
     return Model
@@ -453,31 +475,22 @@ function matrix get_model_statistics (const bundle Model)
     #'   - Adjusted R-squared
     #'   - P-value for autocorrelation test at lag 1
     #'   - P-value for autocorrelation test at lag specified by $pd
-    #'   - P-value for ARCH test at lag 1
-    #'   - P-value for ARCH test at lag specified by $pd
+    #'   - P-value for White's test at lag 1
     #'
     #' The matrix will have row names corresponding to the labels of the statistics.
 
     string pdstring = sprintf("%d", $pd)
-    matrix table = Model.rsq | Model.rsq_adj
-    table |= Model.autocorr_pvalue[1]  # lag 1
-    if $pd > 1
-        table |= Model.autocorr_pvalue[$pd]  # lag $pd
-    endif
-    table |= Model.arch_pvalue[1]  # lag 1
-    if $pd > 1
-        table |= Model.arch_pvalue[$pd]  # lag $pd
-    endif
-
     # Prepare row-labels
     strings rlabels = defarray("R-squared", "Adj. R-squared", "P-value SC(1)")
+
+    matrix table = Model.rsq | Model.rsq_adj
+    table |= Model.autocorr_pvalue[1]        # lag 1
     if $pd > 1
+        table |= Model.autocorr_pvalue[2]  # lag $pd
         rlabels += sprintf("P-value SC(%d)", $pd)
     endif
-    rlabels += "P-value ARCH(1)"
-    if $pd > 1
-        rlabels += sprintf("P-value ARCH(%d)", $pd)
-    endif
+    table |= Model.white_pvalue[1]
+    rlabels += "P-value WHITE"
     rnameset(table, rlabels)
 
     return table
@@ -737,7 +750,7 @@ end function
 function bundle bootARDL (const series target,
                           const list xlist,
                           list rxlist[null],
-                          const bundle self,
+                          bundle self,
                           const bundle Model)
     /* Bootsrap estimation. */
 
@@ -749,8 +762,8 @@ function bundle bootARDL (const series target,
 
     # We are going to store all coefficients of the VAR model
     #matrix ModelBoot.coeff_boot = mshape(NA, self.boot_reps, self.Model.ncoeff)
-    matrix ModelBoot.ar_coefficients = mshape(NA, self.boot_reps, Model.order)
-    scalar ncoeffs_per_x = (Model.order + self.conditional_model) * nelem(xlist)
+    matrix ModelBoot.ar_coefficients = mshape(NA, self.boot_reps, Model.optimal_lag)
+    scalar ncoeffs_per_x = (Model.optimal_lag + self.conditional_model) * nelem(xlist)
     matrix ModelBoot.xlist_coefficients = mshape(NA, self.boot_reps,
                                                  ncoeffs_per_x)
     matrix ModelBoot.rxlist_coefficients = mshape(NA, self.boot_reps, nelem(rxlist))
@@ -770,9 +783,14 @@ function bundle bootARDL (const series target,
     list xzlist = deterlist xlist_w_lags rxlist
     matrix xzbeta = build_xzbeta_coeff_vector(Model)
 
+    scalar verbose_tmp = self.verbose
     if self.verbose
         print "Start bootstrap estimation..."
+        self.verbose = FALSE  # Avoid detailed printing in the bootstrap loop
     endif
+    # Avoid automatic omitting in the bootstrap loop
+    scalar auto_omit_rxlist_tmp = self.auto_omit_rxlist
+    self.auto_omit_rxlist = FALSE
 
     smpl -self.optimal_lag ;  # Important to make sure vectors can be cast to series
 
@@ -816,7 +834,9 @@ function bundle bootARDL (const series target,
 
     if self.verbose
         print "Succesfully finished bootstrap estimation..."
+        self.verbose = verbose_tmp
     endif
+    self.auto_omit_rxlist = auto_omit_rxlist_tmp
 
     return ModelBoot
 end function
