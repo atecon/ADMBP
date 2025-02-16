@@ -12,8 +12,7 @@ function scalar ardl_lagselect (const series y,
     string lag_criteria = toupper(lag_criteria)
     string opt_silent = verbose == FALSE ? "--silent" : "--quiet"
     scalar pmin = conditional_model == TRUE ? 0 : 1
-    scalar rows = max_lag - pmin + 1
-    matrix criteria = seq(pmin,rows)' ~ zeros(rows, 3)
+    matrix criteria = seq(pmin+conditional_model, max_lag)' ~ zeros(max_lag, 3)
 
     loop i=1..max_lag
         list xlist_lags = xlist(-pmin to -i)
@@ -21,7 +20,6 @@ function scalar ardl_lagselect (const series y,
         ols y const y(-1 to -i) Xall --quiet
         criteria[i,2:] = $aic ~ $bic ~ $hqc
     endloop
-
     scalar opt_lag = iminc(criteria[,1 + get_lagselect_criteria_id(lag_criteria)])
 
     return opt_lag
