@@ -1,24 +1,28 @@
 function scalar ardl_lagselect (const series y,
-                                 const list xlist,
-                                 const list rxlist,
-                                 const int max_lag[2::],
-                                 string lag_criteria,
-                                 const bool conditional_model,
-                                 const bool verbose[FALSE])
+                                const list xlist,
+                                const list rxlist,
+                                const int max_lag[2::],
+                                string lag_criteria,
+                                const bool conditional_model,
+                                const bool verbose[FALSE])
     /* Retrieve optimal lag-length by means of some information lag_criteria. */
 
     # TODO: make use of "criteria" package which includes AICc
 
     string lag_criteria = toupper(lag_criteria)
     string opt_silent = verbose == FALSE ? "--silent" : "--quiet"
-
-    # Prepare lags
     scalar pmin = conditional_model == TRUE ? 0 : 1
-    list xlist_lags = xlist(-pmin to -max_lag)
-    list Xall = xlist_lags rxlist
+    scalar rows = max_lag - pmin + 1
+    matrix criteria = seq(pmin,rows)' ~ zeros(rows, 3)
 
-    var max_lag y ; Xall --lagselect @opt_silent
-    scalar opt_lag = iminc($test[,3 + get_lagselect_criteria_id(lag_criteria)])
+    loop i=1..max_lag
+        list xlist_lags = xlist(-pmin to -i)
+        list Xall = xlist_lags rxlist
+        ols y const y(-1 to -i) Xall --quiet
+        criteria[i,2:] = $aic ~ $bic ~ $hqc
+    endloop
+
+    scalar opt_lag = iminc(criteria[,1 + get_lagselect_criteria_id(lag_criteria)])
 
     return opt_lag
 end function
@@ -940,6 +944,7 @@ end function
 
 
 function void print_longrun (const bundle self)
+    /* Print long-run multipliers. */
 
     matrix table_asym = self.coeff_longrun ~ self.stderr_longrun
     matrix model_statistics = get_model_statistics(self.Model)
@@ -1016,7 +1021,6 @@ function void plot_multiplier (const bundle Model,
     else
         bundle PlotOpts = plot_defaults()
     endif
-
     strings vnames = exists(vname) ? defarray(vname) : \
                      (defarray(Model.vname_target) + Model.vname_xlist)
     strings Plots = empty
