@@ -607,6 +607,7 @@ function matrix get_longrun_multipliers (const bundle self,
     scalar boot_reps = boot_reps == 0 ? 1 : boot_reps    # set to 1 if no bootstrapping
     # Loop over all variables in target + xlist
     scalar nvars_yx = 1 + nelem(self.vname_xlist)
+    scalar ncoeffs_per_x = self.optimal_lag + self.conditional_model
 
     if boot_reps > 1
         # store results for each shock in a separate matrix
@@ -630,15 +631,16 @@ function matrix get_longrun_multipliers (const bundle self,
             endif
 
             if i > 1  # for i==1 for the target variable we do not need xbeta, as i==1
-                      # refers to the endogenous variable
+                      # refers to the endogenous variable y
                 if boot_reps > 1
                     # Retrieve lag-coefficients for the selected x variable
                     matrix xbeta = Model.xlist_coefficients[j,]
-                    xbeta = mshape(xbeta, self.optimal_lag, nelem(self.vname_xlist))
+                    xbeta = mshape(xbeta, ncoeffs_per_x, nelem(self.vname_xlist))
                     xbeta = xbeta[,i-1]  # coefficient vector for the selected x variable
                 else
                     matrix xbeta = Model.xlist_coefficients[,i-1]
                 endif
+
             endif
 
             if boot_reps > 1
@@ -1078,11 +1080,11 @@ function void plot_multiplier (const bundle Model,
     if nelem(Plots) == 1
         gridplot Plots --output="@filename"
     else
-        gridplot Plots --width=PlotOpts.width --height=PlotOpts.height --fontsize=PlotOpts.fontsize \
-            --output="@filename"
+        gridplot Plots --width=PlotOpts.width --height=PlotOpts.height \
+            --fontsize=PlotOpts.fontsize --output="@filename"
     endif
-
 end function
+
 
 function string doplot (const matrix input,
                         const bundle PlotOpts,
