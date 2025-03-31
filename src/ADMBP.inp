@@ -178,6 +178,7 @@ function bundle est_ardl (const series target "Endogenous in levels",
     matrix self.Model.xlist_coefficients = get_xlist_coefficients(self.Model, xlist_w_lags,
                                                                   self.vname_xlist)
     matrix self.Model.rxlist_coefficients = get_rxlist_coefficients(self.Model, rxlist)
+
     # Currently, only "const" is included in the deterministic
     # e.g. "time" is part of rxlist
     matrix self.Model.deterministic_coefficients = get_deterministic_coefficients(self.Model)
@@ -434,13 +435,12 @@ function bundle estimate_var (const series target "Endogenous in levels",
     string pdstring = sprintf("%d", $pd)
 
     ols target const target(-1 to -self.optimal_lag) Exog @quiet_opt
-    bundle Model = $model
-    scalar Model.optimal_lag = self.optimal_lag
-    matrix Model.detflags = {1,0,0}  # TODO: currently only const is supported
-
     if nelem(rxlist) && self.auto_omit_rxlist == TRUE
         omit rxlist --auto=0.10 @quiet_opt_omit
     endif
+    bundle Model = $model
+    scalar Model.optimal_lag = self.optimal_lag
+    matrix Model.detflags = {1,0,0}  # TODO: currently only const is supported
 
     if dotests
         # p=1
@@ -960,6 +960,46 @@ function bundle eval_boot_multipliers (const bundle self,
             "Number of results does not match number of shock variables.")
 
     return results
+end function
+
+
+function bundle print_multiplier (const bundle Model,
+                                  string vname[null],
+                                  const scalar alpha[0.01::0.99],
+                                  const bool quiet[FALSE])
+    /* Print dynamic multipliers. */
+
+    # TODO: in principle, alpha may be a vector
+
+    strings vnames = exists(vname) ? defarray(vname) : \
+                     (defarray(Model.vname_target) + Model.vname_xlist)
+
+    strings clabels = defarray("Mean", "Median")
+    clabels += sprintf("LB(%g)", 100 * alpha/2)
+    clabels += sprintf("UB(%g)", 100 * (1-alpha/2))
+    clabels += "Horizon"
+
+    bundle DynamicMultipliers = eval_boot_multipliers(Model,
+                                                      Model.multipliers_boot,
+                                                      alpha)
+
+    if !quiet
+        printf "\n\n*********************************************************\n"
+        printf "           Dynamic multipliers based on ARDL regression\n"
+        printf "*********************************************************\n"
+
+        loop foreach i vnames
+            errorif(inbundle(DynamicMultipliers, vnames[i]) == FALSE,
+                    sprintf("no dynamic multipliers found for variable '%s'.", "$i"))
+
+            printf "\n     -----------------------------------------------------------\n"
+            printf "                    ***    %s -> %s     ***\n", vnames[i], Model.vname_target
+            printf "     -----------------------------------------------------------\n"
+            print DynamicMultipliers[vnames[i]]
+        endloop
+    endif
+
+    return DynamicMultipliers
 end function
 
 
