@@ -5,56 +5,94 @@ set verbose off
 #include ADMBP.gfn
 include /home/admin-tarassow/git/ADMBP/src/ADMBP.inp
 include SB.gfn
+include regls.gfn
 
-open AWM.gdt --quiet
+open AWM_update.gdt #--quiet
 
 # Construct some series and lists
 series inc = ln(YER)
 series c = ln(PCR)
-series w = ln(WLN/PCD)
+series w = ln(WIN/PCR)
+series DP2008q1 = $obsdate >= 20080101
 list xlist = inc w
 list Lall = c xlist
 smpl Lall --no-missing   # avoid missing values
 
-
-# Lag selection by hand
-list rxlist = time
+# Parameters
+list rxlist = time DP2008q1
 scalar CONDITIONAL_ARDL = FALSE
-scalar optimal_lag = ardl_lagselect(c, xlist, rxlist, 4,
-                                    "AIC", CONDITIONAL_ARDL)
+CUMULATED_MULTIPLIERS = TRUE
+BOOT_REPS = 399
+MAX_HORIZON = 40
+MAX_LAG = 8
 
+# Select example to run
+# 1: Standard ARDL with lag selection by AIC
+# 2: Standard ARDL with lag selection by AIC and full ARDL estimation
+# 3: Standard ARDL with lag selection by Lasso and full ARDL estimation
+EXAMPLE = 2
 
-print "Start ARDL estimation"
-bundle Opts = _(max_lag = 8, boot_reps = 99,
-                cumulated_multipliers = FALSE,
-                max_horizon = 25,
-                lag_criteria = "AIC",
-                verbose = TRUE,
-                conditional_model = CONDITIONAL_ARDL,
-                auto_omit_rxlist = TRUE)
-bundle Model = est_ardl(c, xlist, rxlist, Opts)
-print "Finished  ARDL estimation"
+if EXAMPLE == 1
+    print "Example 1: Standard ARDL with lag selection by AIC"
+    # Lag selection using information criteria
+    scalar optimal_lag = ardl_lagselect(c, xlist, rxlist, 4,
+                                        "AIC", CONDITIONAL_ARDL)
+stop # example ends here
+
+elif EXAMPLE == 2  # Standard ARDL with lag selection by AIC
+    print "Start ARDL estimation"
+    string name = "ARDL_AIC"
+
+    bundle Opts = _(max_lag = MAX_LAG, boot_reps = BOOT_REPS,
+                    cumulated_multipliers = CUMULATED_MULTIPLIERS,
+                    max_horizon = MAX_HORIZON,
+                    lag_criteria = "AIC",
+                    verbose = TRUE,
+                    conditional_model = CONDITIONAL_ARDL,
+                    auto_omit_rxlist = TRUE)
+    bundle Model = est_ardl(c, xlist, rxlist, Opts)
+    print "Finished  ARDL estimation"
+
+elif EXAMPLE == 3    # Select optimal lag length by means of lasso regression
+    string name = "ARDL_Lasso"
+
+    bundle Opts = _(max_lag = MAX_LAG, boot_reps = BOOT_REPS,
+                    cumulated_multipliers = CUMULATED_MULTIPLIERS,
+                    max_horizon = MAX_HORIZON,
+                    lag_criteria = "lasso",
+                    xvalidate = TRUE,
+                    verbose = TRUE,
+                    conditional_model = CONDITIONAL_ARDL)
+    bundle Model = est_ardl(c, xlist, rxlist, Opts)
+    print "Finished ARDL estimation with lasso-based lag selection"
+endif
 
 print "Print the bootstrap long-run multipliers"
 print_longrun(Model)
+
+print "Print the bootstrap dynamic multipliers"
+bundle DM = print_multiplier(Model, null, 0.1, TRUE)
+print DM
 
 print "Compute and print mean lags"
 matrix mean_lags = get_mean_lags(Model)
 print mean_lags
 
-
 # Print multipliers for the w variable
-bundle Opts = _(filename="multiplier_w.png")
+bundle Opts = _(filename="multiplier_w_@name.png")
 plot_multiplier(Model, "inc", Opts)
 
 # Print multipliers for all variables - tweak plot
-bundle Opts = _(filename="multipliers_all.png",
+bundle Opts = _(filename="multipliers_all_@name.png",
                 alpha=0.2, fontsize=8,
                 gnuplot_cmd="set key top right")
 plot_multiplier(Model, null, Opts)
 
-stop
+print "Sample script ends here"
+quit
 
+
+*** HERE FOLLOWS THE DEPRECATED CODE ***
 
 # ARDL parameters
 scalar pqmax = 4
