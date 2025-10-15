@@ -197,7 +197,6 @@ function bundle est_ardl (const series target "Endogenous in levels",
     if self.boot_reps > 0               # Bootstrap estimation
         bundle ModelBoot = bootARDL(target, xlist, rxlist, self, self.Model)
 
-
         # Compute and store bootstrap dynamic multipliers
         matrices self.multipliers_boot = get_dynamic_multipliers(self, ModelBoot, self.boot_reps)
         # We do not compute summary statistics for the bootstrapped dynamic multipliers here
