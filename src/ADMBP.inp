@@ -144,7 +144,7 @@ function bundle est_ardl (const series target "Endogenous in levels",
     self.t2 = $t2
 
     scalar self.optimal_lag = self.max_lag  # default value
-    if self.lag_criteria != ""
+    if strlen(self.lag_criteria) > 0
         if self.verbose
             printf "Start lag selection using %s...\n", self.lag_criteria
         endif
