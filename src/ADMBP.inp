@@ -69,6 +69,16 @@ function bundle get_defaults (void)
     string self.det_case = "uc"
     scalar self.error = FALSE
 
+    # Lasso-specific options (based on regls package)
+    scalar self.nlambda = 100
+    scalar self.stdize = TRUE
+    scalar self.xvalidate = TRUE  # use cross-validation to select lambda
+    scalar self.nfolds = 5 # number of folds for cross-validation
+    scalar self.randfolds = FALSE # assign folds randomly -> keep FALSE for time-series
+    # Select optimal lambda value:
+    #  idxmin=BIC minimizer, idx1se=1se rule; see ch. 5 in regls manual
+    string self.minimizer = "idxmin"
+
     return self
 end function
 
@@ -118,6 +128,38 @@ function void add_varnames (bundle *self,
 end function
 
 
+function bundle get_Rq_restriction_matrix (const matrix coeff_lasso)
+    /* Create the matrices R and q imposing zero restrictions based on lasso estimates.
+       coeff_lasso: A k-length vector of lasso-based point estimates where q entries are zero.
+       Returns a bundle containing R and q matrices. */
+
+    # Identify the indices of zero entries in the coefficient vector
+    matrix zero_indices = coeff_lasso .= 0
+    # Number of zero restrictions
+    scalar g = sumc(zero_indices)
+
+    # Initialize R as a g x k matrix of zeros
+    scalar k = rows(coeff_lasso)
+    matrix R = zeros(g, k)
+    # Create q as a g x 1 zero vector
+    matrix q_vec = zeros(g, 1)
+
+    # Populate R: set 1 in the columns corresponding to zero indices
+    scalar row = 1
+    loop i=1..k
+        if zero_indices[i] == TRUE
+            R[row, i] = 1
+            row += 1
+        endif
+    endloop
+
+    # Return R and q as a bundle
+    bundle result = _(R, q = q_vec)
+    return result
+end function
+
+
+
 function bundle est_ardl (const series target "Endogenous in levels",
                           const list xlist "Exogenous in levels (lags autom. created)",
                           list rxlist[null] "Exogenous in levels (no lags created)",
@@ -143,28 +185,41 @@ function bundle est_ardl (const series target "Endogenous in levels",
     self.t1 = $t1
     self.t2 = $t2
 
+    self.lag_criteria = tolower(self.lag_criteria)
     scalar self.optimal_lag = self.max_lag  # default value
+    bundle self.ModelLasso = empty
+    scalar self.auto_omit_rxlist = self.lag_criteria == "lasso" ? FALSE : self.auto_omit_rxlist
+
     if strlen(self.lag_criteria) > 0
         if self.verbose
             printf "Start lag selection using %s...\n", self.lag_criteria
         endif
 
-        scalar self.optimal_lag = ardl_lagselect(target, xlist, rxlist,
-                                                 self.max_lag, self.lag_criteria,
-                                                 self.conditional_model,
-                                                 self.verbose)
-        if self.verbose
-            printf "\nOptimal lag length (%s): %d\n", self.lag_criteria, self.optimal_lag
-        endif
+        if instrings(defarray("aic", "bic", "hqc", "aicc"), self.lag_criteria, TRUE) == TRUE
+            scalar self.optimal_lag = ardl_lagselect(target, xlist, rxlist,
+                                                    self.max_lag, self.lag_criteria,
+                                                    self.conditional_model,
+                                                    self.verbose)
+            if self.verbose
+                printf "\nOptimal lag length (%s): %d\n", self.lag_criteria, self.optimal_lag
+            endif
 
-        # Update xlist with optimal lags
-        list xlist_w_lags = get_lags(xlist, self.optimal_lag, self.conditional_model)
+            # Update xlist with optimal lags
+            list xlist_w_lags = get_lags(xlist, self.optimal_lag, self.conditional_model)
+
+        elif self.lag_criteria == "lasso"
+            self.ModelLasso = estimate_lasso(target, xlist, rxlist, self)
+        else
+            errorif(TRUE,
+                    "Error: Unknown lag selection criteria. Please use 'aic', 'bic', 'hqc', 'aicc', or 'lasso'.")
+        endif
     endif
 
-    # Estimate the initial ARDL model
+    # Estimate the initial ARDL model using OLS plus possible restrictions as set by lasso
     scalar SPECIFICATION_TESTS = TRUE
-    bundle self.Model = estimate_var(target, xlist_w_lags, rxlist, self,
+    bundle self.Model = estimate_var(target, xlist_w_lags, rxlist, &self,
                                      SPECIFICATION_TESTS)
+
     matrix self.Model.ar_coefficients = get_ar_coefficients(self.Model)
     scalar self.Model.conditional_model = self.conditional_model
     scalar model_is_stable = model_is_stable(self.Model.ar_coefficients)
@@ -420,11 +475,45 @@ function list get_lags (const list xlist, const scalar max_lag, const bool condi
     return xlist_with_lags
 end function
 
+function bundle estimate_lasso (const series target "Endogenous in levels",
+                                const list xlist "Exogenous in levels",
+                                list rxlist[null] "Restricted I0s excl. intercept",
+                                const bundle self)
+    /* Estimate a 1-dimensional Lasso VARX model. */
+
+    # Create exogenous variable list
+    scalar minlag_x = self.conditional_model == TRUE ? 0 : -1
+    list Exog = target(-1 to -self.max_lag) xlist(minlag_x to -self.max_lag) rxlist
+
+    # Prepare parameters for regls
+    bundle Params = empty
+    Params.nlambda = self.nlambda
+    Params.stdize = self.stdize
+    Params.xvalidate = self.xvalidate
+    Params.nfolds = self.nfolds
+    Params.randfolds = self.randfolds
+    Params.verbosity = self.verbose == TRUE ? 1: 0
+
+    # Estimate the model
+    bundle Model = regls(target, Exog, Params)
+
+    # Retrieve results
+    strings Model.parnames = rnameget(Model.B)
+    string minimizer = self.minimizer
+    matrix Model.coeff = Model.B[,Model["@minimizer"]] # alternatively use "idx1se"
+    rnameset(Model.coeff, Model.parnames)
+    #print Model.coeff
+    #print Model.nzb
+    matrix Model.detflags = {1,0,0}  # TODO: currently only const is supported
+
+    return Model
+end function
+
 
 function bundle estimate_var (const series target "Endogenous in levels",
                               const list xlist "Exogenous in levels",
                               list rxlist[null] "Restricted I0s excl. intercept",
-                              const bundle self,
+                              bundle *self,
                               const bool dotests)
     /* Estimate a 1-dimensional VARX model. */
 
@@ -433,10 +522,30 @@ function bundle estimate_var (const series target "Endogenous in levels",
     string quiet_opt_omit = self.verbose == FALSE ? "--silent" : ""
     string pdstring = sprintf("%d", $pd)
 
+    # Estimate the unrestricted model
     ols target const target(-1 to -self.optimal_lag) Exog @quiet_opt
-    if nelem(rxlist) && self.auto_omit_rxlist == TRUE
+
+    if nelem(rxlist) && self.auto_omit_rxlist == TRUE && self.lag_criteria != "lasso"
+        # Automatically omit insignificant variables from rxlist only
         omit rxlist --auto=0.10 @quiet_opt_omit
+
+    elif self.lag_criteria == "lasso"
+        # Impose lasso-based restrictions on OLS
+        coeff_lasso = self.ModelLasso.coeff
+        coeff_ols = $coeff
+
+        bundle Rq = get_Rq_restriction_matrix(coeff_lasso)
+        matrix self.R = Rq.R
+        matrix self.q = Rq.q
+        R = self.R
+        q = self.q
+
+        restrict --full @quiet_opt_omit
+            R = R
+            q = q
+        end restrict
     endif
+
     bundle Model = $model
     scalar Model.optimal_lag = self.optimal_lag
     matrix Model.detflags = {1,0,0}  # TODO: currently only const is supported
@@ -513,8 +622,8 @@ end function
 
 
 function matrices get_dynamic_multipliers (const bundle self,
-                                            const bundle Model,
-                                            int boot_reps[0::])
+                                           const bundle Model,
+                                           int boot_reps[0::])
     /* Compute dynamic multipliers for target and all xlist series. */
 
     if self.verbose
@@ -543,7 +652,6 @@ function matrices get_dynamic_multipliers (const bundle self,
             endif
 
             if i > 1  # for i==1 for the target variable we do not need xbeta
-
                 if boot_reps > 1
                     # Retrieve lag-coefficients for the selected x variable
                     matrix xbeta = Model.xlist_coefficients[j,]
@@ -629,7 +737,7 @@ function matrix get_longrun_multipliers (const bundle self,
                 matrix vcv = get_cov_matrix(Model, self.optimal_lag, select)
             endif
 
-            if i > 1  # for i==1 for the target variable we do not need xbeta, as i==1
+            if i > 1  # for i==1 for the target variable, we do not need xbeta, as i==1
                       # refers to the endogenous variable y
                 if boot_reps > 1
                     # Retrieve lag-coefficients for the selected x variable
@@ -775,7 +883,7 @@ function bundle bootARDL (const series target,
     scalar nloop = 1
     scalar nfailed_estimates = 0
 
-    list xlist_w_lags = get_lags(xlist, self.optimal_lag, Model.conditional_model)
+    list xlist_w_lags = get_lags(xlist, Model.optimal_lag, Model.conditional_model)
 
     smpl Model.t1 Model.t2      # set sample to the estimation period
     series uhat = Model.uhat    # residuals from the initial model
@@ -791,18 +899,22 @@ function bundle bootARDL (const series target,
     endif
     # Avoid automatic omitting in the bootstrap loop
     scalar auto_omit_rxlist_tmp = self.auto_omit_rxlist
-    self.auto_omit_rxlist = FALSE
+    self.auto_omit_rxlist = FALSE  # temporarily turn off automatic omitting
 
-    smpl -self.optimal_lag ;  # Important to make sure vectors can be cast to series
+    smpl -Model.optimal_lag ;  # Important to make sure vectors can be cast to series
 
     loop while nloop <= self.boot_reps
         series innovations = generate_bootstrap_residuals(uhat, self.boot_type)
         series target_boot = varsimA(target, Model.ar_coefficients, xzlist,
-                                     xzbeta, innovations, self.optimal_lag)
+                                     xzbeta, innovations, Model.optimal_lag)
         # For debugging purposes
         #gnuplot target target_boot --with-lines --time-series --output="output.png"
 
-        bundle ModelTemp = estimate_var(target_boot, xlist_w_lags, rxlist, self, FALSE)
+        # Note: When using Lasso, we do not re-select variables in each bootstrap iteration
+        # This requires another layer of complexity which is currently not implemented
+        # See i.e. Chaterjee & Lahiri (2012): https://www.tandfonline.com/doi/abs/10.1198/jasa.2011.tm10159
+        bundle ModelTemp = estimate_var(target_boot, xlist_w_lags, rxlist, &self, FALSE)
+
         ModelTemp.conditional_model = Model.conditional_model
         #ModelBoot.coeff_boot[nloop,] = ModelTemp.coeff'           # TODO: Do we really need all coefficients?
         matrix ar_beta = get_ar_coefficients(ModelTemp)'
@@ -823,7 +935,6 @@ function bundle bootARDL (const series target,
         # Form per row: x(-1) ~ x(-2) ~ ... ~ x(-pq) ~ z(-1) ~ z(-2) ~ ... ~ z(-pq)
         matrix xbeta = get_xlist_coefficients(ModelTemp, xlist_w_lags, self.vname_xlist)
         ModelBoot.xlist_coefficients[nloop,] = vec(xbeta)'
-
         if nelem(rxlist) > 0
             # Form per row: a ~ b ~ ...
             ModelBoot.rxlist_coefficients[nloop,] = \
@@ -1117,7 +1228,6 @@ function void plot_multiplier (const bundle Model,
     string filename = exists(PlotOpts.filename) ? PlotOpts.filename : "display"
 
     if nelem(Plots) == 1
-    print PlotOpts
         gridplot Plots --fontsize=PlotOpts.fontsize --output="@filename"
     else
         gridplot Plots --width=PlotOpts.width --height=PlotOpts.height \
