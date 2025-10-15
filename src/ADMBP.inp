@@ -1118,7 +1118,8 @@ function void plot_multiplier (const bundle Model,
     string filename = exists(PlotOpts.filename) ? PlotOpts.filename : "display"
 
     if nelem(Plots) == 1
-        gridplot Plots --output="@filename"
+    print PlotOpts
+        gridplot Plots --fontsize=PlotOpts.fontsize --output="@filename"
     else
         gridplot Plots --width=PlotOpts.width --height=PlotOpts.height \
             --fontsize=PlotOpts.fontsize --output="@filename"
