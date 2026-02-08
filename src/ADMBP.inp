@@ -247,6 +247,8 @@ function bundle est_ardl (const series target "Endogenous in levels",
     matrix self.stderr_longrun = coeff_longrun[,2]
     rnameset(self.stderr_longrun, rnameget(coeff_longrun))
     cnameset(self.stderr_longrun, "S.E.(asym)")
+    # Compute and store adjustment speed
+    scalar self.ecterm = get_adjustment_speed(self, self.Model, 0)[1]
 
     smpl full
     if self.boot_reps > 0               # Bootstrap estimation
@@ -268,6 +270,9 @@ function bundle est_ardl (const series target "Endogenous in levels",
         matrix self.stderr_longrun_boot = coeff_longrun[,3] # retrieve standard error
         rnameset(self.stderr_longrun_boot, rnameget(coeff_longrun))
         cnameset(self.stderr_longrun_boot, "S.E.(boot)")
+
+        # Compute and store adjustment speed results
+        matrix self.ecterm_boot = get_adjustment_speed(self, ModelBoot, self.boot_reps)
     endif
 
     return self
@@ -685,6 +690,38 @@ function matrices get_dynamic_multipliers (const bundle self,
     endif
 
     return DynamicMultipliers
+end function
+
+
+function matrix get_adjustment_speed (const bundle self,
+                                      const bundle Model,
+                                      int boot_reps[0::])
+    #' Function to compute the adjustment speed (or error-correction term) for the target variable.
+
+
+    if self.verbose
+        print "Start computing adjustment speeds "
+        if boot_reps > 0
+            printf "with %d bootstrap iterations...\n", boot_reps
+        endif
+    endif
+
+    scalar boot_reps = boot_reps == 0 ? 1 : boot_reps    # set to 1 if no bootstrapping
+
+    if boot_reps > 1
+        matrix Rho = sumr(Model.ar_coefficients) - 1
+        matrix AdjustmentSpeeds = meanc(Rho) ~ quantile(Rho, 0.5) ~ sdc(Rho)
+        cnameset(AdjustmentSpeeds, defarray("Mean", "Median", "S.E."))
+        rnameset(AdjustmentSpeeds, "Adj. speed")
+    else
+        matrix AdjustmentSpeeds = sum(Model.ar_coefficients) - 1
+    endif
+
+    if self.verbose
+        printf "Succesfully computed adjustment speeds.\n"
+    endif
+
+    return AdjustmentSpeeds
 end function
 
 
@@ -1116,15 +1153,17 @@ end function
 function void print_longrun (const bundle self)
     /* Print long-run multipliers. */
 
-    matrix table_asym = self.coeff_longrun ~ self.stderr_longrun
+    matrix table_asym = (self.ecterm ~ NA) | (self.coeff_longrun ~ self.stderr_longrun)
     matrix model_statistics = get_model_statistics(self.Model)
-    strings vnames = defarray(self.vname_target) + self.vname_xlist + rnameget(model_statistics)
+    strings vnames = defarray("Adj. speed", self.vname_target) + self.vname_xlist + rnameget(model_statistics)
+
 
     if inbundle(self, "coeff_longrun_boot")
         #matrix table_boot = merge_coeff_longrun_asymp_boot(self.coeff_longrun_boot,
                                                            #self.stderr_longrun_boot)
         # Print mean long-run bootstrap value
-        matrix table_boot = self.coeff_longrun_boot[,1] ~ self.stderr_longrun_boot
+        matrix table_boot = self.ecterm_boot[,{1,3}]
+        table_boot |= (self.coeff_longrun_boot[,1] ~ self.stderr_longrun_boot)
     endif
     printf "\n\n*********************************************************\n"
     printf "           Long-run multipliers based on ARDL regression\n"
