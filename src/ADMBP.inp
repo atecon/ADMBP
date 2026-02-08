@@ -712,7 +712,7 @@ function matrix get_adjustment_speed (const bundle self,
         matrix Rho = sumr(Model.ar_coefficients) - 1
         matrix AdjustmentSpeeds = meanc(Rho) ~ quantile(Rho, 0.5) ~ sdc(Rho)
         cnameset(AdjustmentSpeeds, defarray("Mean", "Median", "S.E."))
-        rnameset(AdjustmentSpeeds, "Adj. speed")
+        rnameset(AdjustmentSpeeds, defarray("ECterm"))
     else
         matrix AdjustmentSpeeds = sum(Model.ar_coefficients) - 1
     endif
